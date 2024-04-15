@@ -58,9 +58,71 @@ tmean98 = w̄98 / (1 - 0.98)
 tvar98 = vₑ98 / (1 - 0.98^2)
 
 #==============================================================================
+# Markov Chain
+==============================================================================#
+mutable struct MarkovChain
+    theta::Array{Float64}
+    states::Array{Float64}
+    mean::Union{Float64, Missing}
+    var::Union{Float64, Missing}
+    std::Union{Float64, Missing}
+end
+
+"""
+    simulate(theta, states, periods=10000, burn=0, replications=0)
+
+Simulates a Markov Chain
+
+Positional Args
+markovchain: markov chain containing transition matrix and states
+periods: length of simulation
+burn: sets the number of iterations to run prior to the simulation
+replications: number of simulations to run (unimplemented)
+"""
+function simulate(markovchain, periods=1000, burn=0, replications=0)
+    N = length(markovchain.states)
+    
+    # Configure CDF
+    Θ = Array{dist.Categorical{Float64, Vector{Float64}}}(undef, N)
+    for i = 1:N
+        Θ[i] = dist.Categorical(markovchain.theta[(i-1)*N+1:i*N])
+    end
+
+    # Initialize index of realized states and run burn-in
+    index_series = Array{Int64}(undef, periods)
+    index_series[1] = rand(1:N)
+    if burn > 0
+        for _ = 1:burn
+            index_series[1] = dist.rand(Θ[index_series[1]], 1)[1]
+        end
+    end
+
+    # Run simulation
+    for t = 2:periods
+        index_series[t] = dist.rand(Θ[index_series[t-1]], 1)[1]
+    end
+    
+    state_series = Array{Float64}(undef, periods)
+    for t = 1:periods
+        state_series[t] = markovchain.states[index_series[t]]
+    end
+
+    markovchain.mean = stats.mean(state_series)
+    markovchain.var = stats.var(state_series)
+    markovchain.std = sqrt(markovchain.var)
+
+    #=
+    if replications > 0
+        TBD
+    end
+    =#
+
+    return state_series
+end
+
+#==============================================================================
 # Tauchen / Rouwenhorst
 ==============================================================================#
-# Configure y (Tauchen)
 """
     tauchen(
     mean,
@@ -139,7 +201,7 @@ function tauchen(
     
     states .+= μ / (1 - rho)
 
-    return Θ, states
+    return MarkovChain(Θ, states, missing, missing, missing)
 end
 
 """
@@ -243,71 +305,22 @@ function rouwenhorst(
 
     states .+= μ / (1 - rho)
     
-    return Θ, states
-end
-
-"""
-    simulate(theta, states, periods=10000, burn=0, replications=0)
-
-Simulates a Markov Chain
-
-Positional Args
-theta: transition probability matrix
-states: possible realized states
-periods: length of simulation
-burn: sets the number of iterations to run prior to the simulation
-replications: number of simulations to run (unimplemented)
-"""
-function simulate(theta, states, periods=1000, burn=0, replications=0)
-    N = length(states)
-    
-    # Configure CDF
-    Θ = Array{dist.Categorical{Float64, Vector{Float64}}}(undef, N)
-    for i = 1:N
-        Θ[i] = dist.Categorical(theta[(i-1)*N+1:i*N])
-    end
-
-    # Initialize index of realized states and run burn-in
-    index_series = Array{Int64}(undef, periods)
-    index_series[1] = rand(1:N)
-    if burn > 0
-        for _ = 1:burn
-            index_series[1] = dist.rand(Θ[index_series[1]], 1)[1]
-        end
-    end
-
-    # Run simulation
-    for t = 2:periods
-        index_series[t] = dist.rand(Θ[index_series[t-1]], 1)[1]
-    end
-    
-    state_series = Array{Float64}(undef, periods)
-    for t = 1:periods
-        state_series[t] = states[index_series[t]]
-    end
-
-    #=
-    if replications > 0
-        TBD
-    end
-    =#
-
-    return state_series
+    return MarkovChain(Θ, states, missing, missing, missing)
 end
 
 #==============================================================================
 # Problem 1 Results
 ==============================================================================#
-Θ, states = tauchen(w̄, vₑ, 5, 3, 0.9; print_output=false)
-yts5 = simulate(Θ, states, 10000, 5, 0)
-Θ, states = tauchen(w̄, vₑ, 11, 3, 0.9; print_output=false)
-yts11 = simulate(Θ, states, 10000, 15, 0)
-Θ, states = tauchen(w̄98, vₑ98, 5, 3, 0.98; print_output=false)
-yts5p = simulate(Θ, states, 10000, 5, 0)
-Θ, states = rouwenhorst(w̄, vₑ, 5, 0.9; print_output=false)
-yrs5 = simulate(Θ, states, 10000, 5, 0)
-Θ, states = rouwenhorst(w̄98, vₑ98, 5, 0.98; print_output=false)
-yrs5p = simulate(Θ, states, 10000, 5, 0)
+markov = tauchen(w̄, vₑ, 5, 3, 0.9; print_output=false)
+yts5 = simulate(markov, 10000, 5, 0)
+markov = tauchen(w̄, vₑ, 11, 3, 0.9; print_output=false)
+yts11 = simulate(markov, 10000, 15, 0)
+markov = tauchen(w̄98, vₑ98, 5, 3, 0.98; print_output=false)
+yts5p = simulate(markov, 10000, 5, 0)
+markov = rouwenhorst(w̄, vₑ, 5, 0.9; print_output=false)
+yrs5 = simulate(markov, 10000, 5, 0)
+markov = rouwenhorst(w̄98, vₑ98, 5, 0.98; print_output=false)
+yrs5p = simulate(markov, 10000, 5, 0)
 
 println("\n\nProblem 1a)")
 println("Sample moments (T5):")
