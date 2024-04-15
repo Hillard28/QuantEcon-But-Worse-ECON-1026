@@ -66,7 +66,7 @@ mutable struct MarkovChain
     std::Union{Float64, Missing}
 end
 
-function simulate(markovchain, periods=1000, burn=0, replications=0; random_state)
+function simulate!(markovchain, periods=1000, burn=0, replications=0; random_state)
     if random_state >= 0
         random.seed!(random_state)
     end
@@ -282,7 +282,7 @@ end
 ==============================================================================#
 println("\n\nProblem 1a)")
 markov = tauchen(w̄, vₑ, 5, 3, 0.9; print_output=false)
-yts5 = simulate(markov, 10000, 1000, 100; random_state=42)
+yts5 = simulate!(markov, 10000, 1000, 100; random_state=42)
 println("Sample moments (T5):")
 println("Mean: ", round(markov.mean, digits=3))
 println("Variance: ", round(markov.var, digits=3))
@@ -292,7 +292,7 @@ println("Variance: ", round(tvar, digits=3))
 
 println("\n\nProblem 1b)")
 markov = tauchen(w̄, vₑ, 11, 3, 0.9; print_output=false)
-yts11 = simulate(markov, 10000, 1000, 100; random_state=42)
+yts11 = simulate!(markov, 10000, 1000, 100; random_state=42)
 println("Sample moments (T11):")
 println("Mean: ", round(markov.mean, digits=3))
 println("Variance: ", round(markov.var, digits=3))
@@ -302,12 +302,12 @@ println("Variance: ", round(tvar, digits=3))
 
 println("\n\nProblem 1c)")
 markov = rouwenhorst(w̄, vₑ, 5, 0.9; print_output=false)
-yrs5 = simulate(markov, 10000, 1000, 100; random_state=42)
+yrs5 = simulate!(markov, 10000, 1000, 100; random_state=42)
 println("Sample moments (R5):")
 println("Mean: ", round(markov.mean, digits=3))
 println("Variance: ", round(markov.var, digits=3))
 markov = tauchen(w̄, vₑ, 5, 3, 0.9; print_output=false)
-yts5 = simulate(markov, 10000, 1000, 100; random_state=42)
+yts5 = simulate!(markov, 10000, 1000, 100; random_state=42)
 println("\nSample moments (T5):")
 println("Mean: ", round(markov.mean, digits=3))
 println("Variance: ", round(markov.var, digits=3))
@@ -317,12 +317,12 @@ println("Variance: ", round(tvar, digits=3))
 
 println("\n\nProblem 1d)")
 markov = tauchen(w̄98, vₑ98, 5, 3, 0.98; print_output=false)
-yts5p = simulate(markov, 10000, 1000, 100; random_state=42)
+yts5p = simulate!(markov, 10000, 1000, 100; random_state=42)
 println("Sample moments (T5, ρ=0.98):")
 println("Mean: ", round(markov.mean, digits=3))
 println("Variance: ", round(markov.var, digits=3))
 markov = rouwenhorst(w̄98, vₑ98, 5, 0.98; print_output=false)
-yrs5p = simulate(markov, 10000, 1000, 100; random_state=42)
+yrs5p = simulate!(markov, 10000, 1000, 100; random_state=42)
 println("\nSample moments (R5, ρ=0.98):")
 println("Mean: ", round(markov.mean, digits=3))
 println("Variance: ", round(markov.var, digits=3))
@@ -334,14 +334,14 @@ println("Variance: ", round(tvar98, digits=3))
 # Sanity Check
 ==============================================================================#
 mc5qe = qe.tauchen(5, ρ, σₑ, w̄, 3)
-yts5qe = qe.simulate(mc5qe, 10000)
+yts5qe = qe.simulate!(mc5qe, 10000)
 mc11qe = qe.tauchen(11, ρ, σₑ, w̄, 3)
-yts11qe = qe.simulate(mc11qe, 10000)
+yts11qe = qe.simulate!(mc11qe, 10000)
 
 mcr5qe = qe.rouwenhorst(5, ρ, σₑ, w̄)
-yrs5qe = qe.simulate(mcr5qe, 10000)
+yrs5qe = qe.simulate!(mcr5qe, 10000)
 mcr598qe = qe.rouwenhorst(5, 0.98, σₑ98, w̄98)
-yrs598qe = qe.simulate(mcr598qe, 10000)
+yrs598qe = qe.simulate!(mcr598qe, 10000)
 
 println("\nProblem 1a) (QuantEcon)")
 println("Sample moments:")
