@@ -40,10 +40,10 @@ vₑ = 0.06
 σₑ = sqrt(vₑ)
 μₑ = 0
 Dₑ = dist.Normal(μₑ, σₑ)
-
 ρ = 0.90
-w̄ = -vₑ / (2*(1 + ρ))
 
+# Set w̄ and moments according to analytical derivations
+w̄ = -vₑ / (2*(1 + ρ))
 tmean = w̄ / (1 - ρ)
 tvar = vₑ / (1 - ρ^2)
 
@@ -51,6 +51,7 @@ tvar = vₑ / (1 - ρ^2)
 vₑ98 = (1 - 0.98^2) * tvar
 σₑ98 = sqrt(vₑ98)
 Dₑ98 = dist.Normal(μₑ, σₑ98)
+ρ98 = 0.98
 w̄98 = -vₑ98 / (2*(1 + 0.98))
 tmean98 = w̄98 / (1 - 0.98)
 tvar98 = vₑ98 / (1 - 0.98^2)
@@ -281,7 +282,7 @@ end
 # Problem 1 Results
 ==============================================================================#
 println("\n\nProblem 1a)")
-markov = tauchen(w̄, vₑ, 5, 3, 0.9; print_output=false)
+markov = tauchen(w̄, vₑ, 5, 3, ρ; print_output=false)
 yts5 = simulate!(markov, 10000, 1000, 100; random_state=42)
 println("Sample moments (T5):")
 println("Mean: ", round(markov.mean, digits=3))
@@ -291,7 +292,7 @@ println("Mean: ", round(tmean, digits=3))
 println("Variance: ", round(tvar, digits=3))
 
 println("\n\nProblem 1b)")
-markov = tauchen(w̄, vₑ, 11, 3, 0.9; print_output=false)
+markov = tauchen(w̄, vₑ, 11, 3, ρ; print_output=false)
 yts11 = simulate!(markov, 10000, 1000, 100; random_state=42)
 println("Sample moments (T11):")
 println("Mean: ", round(markov.mean, digits=3))
@@ -301,12 +302,12 @@ println("Mean: ", round(tmean, digits=3))
 println("Variance: ", round(tvar, digits=3))
 
 println("\n\nProblem 1c)")
-markov = rouwenhorst(w̄, vₑ, 5, 0.9; print_output=false)
+markov = rouwenhorst(w̄, vₑ, 5, ρ; print_output=false)
 yrs5 = simulate!(markov, 10000, 1000, 100; random_state=42)
 println("Sample moments (R5):")
 println("Mean: ", round(markov.mean, digits=3))
 println("Variance: ", round(markov.var, digits=3))
-markov = tauchen(w̄, vₑ, 5, 3, 0.9; print_output=false)
+markov = tauchen(w̄, vₑ, 5, 3, ρ; print_output=false)
 yts5 = simulate!(markov, 10000, 1000, 100; random_state=42)
 println("\nSample moments (T5):")
 println("Mean: ", round(markov.mean, digits=3))
@@ -316,12 +317,12 @@ println("Mean: ", round(tmean, digits=3))
 println("Variance: ", round(tvar, digits=3))
 
 println("\n\nProblem 1d)")
-markov = tauchen(w̄98, vₑ98, 5, 3, 0.98; print_output=false)
+markov = tauchen(w̄98, vₑ98, 5, 3, ρ98; print_output=false)
 yts5p = simulate!(markov, 10000, 1000, 100; random_state=42)
 println("Sample moments (T5, ρ=0.98):")
 println("Mean: ", round(markov.mean, digits=3))
 println("Variance: ", round(markov.var, digits=3))
-markov = rouwenhorst(w̄98, vₑ98, 5, 0.98; print_output=false)
+markov = rouwenhorst(w̄98, vₑ98, 5, ρ98; print_output=false)
 yrs5p = simulate!(markov, 10000, 1000, 100; random_state=42)
 println("\nSample moments (R5, ρ=0.98):")
 println("Mean: ", round(markov.mean, digits=3))
