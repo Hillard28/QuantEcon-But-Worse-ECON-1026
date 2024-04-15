@@ -9,8 +9,6 @@ import QuantEcon as qe
 import Random as random
 import Plots as plt
 
-random.seed!(1383686510)
-
 #==============================================================================
 # Utility functions
 ==============================================================================#
@@ -68,18 +66,10 @@ mutable struct MarkovChain
     std::Union{Float64, Missing}
 end
 
-"""
-    simulate(theta, states, periods=10000, burn=0, replications=0)
-
-Simulates a Markov Chain
-
-Positional Args
-markovchain: markov chain containing transition matrix and states
-periods: length of simulation
-burn: sets the number of iterations to run prior to the simulation
-replications: number of simulations to run (unimplemented)
-"""
-function simulate(markovchain, periods=1000, burn=0, replications=0)
+function simulate(markovchain, periods=1000, burn=0, replications=0; random_state)
+    if random_state >= 0
+        random.seed!(random_state)
+    end
     N = length(markovchain.states)
     
     # Configure CDF
@@ -109,13 +99,34 @@ function simulate(markovchain, periods=1000, burn=0, replications=0)
 
     markovchain.mean = stats.mean(state_series)
     markovchain.var = stats.var(state_series)
-    markovchain.std = sqrt(markovchain.var)
+    markovchain.std = stats.std(state_series)
 
-    #=
+    # If replication is specified, rerun simulation and take average of moments
     if replications > 0
-        TBD
+        for replication = 1:replications
+            index_series[1] = rand(1:N)
+            if burn > 0
+                for _ = 1:burn
+                    index_series[1] = dist.rand(Θ[index_series[1]], 1)[1]
+                end
+            end
+
+            for t = 2:periods
+                index_series[t] = dist.rand(Θ[index_series[t-1]], 1)[1]
+            end
+            
+            for t = 1:periods
+                state_series[t] = markovchain.states[index_series[t]]
+            end
+
+            markovchain.mean += stats.mean(state_series)
+            markovchain.var += stats.var(state_series)
+            markovchain.std += stats.std(state_series)
+        end
+        markovchain.mean /= (replications + 1)
+        markovchain.var /= (replications + 1)
+        markovchain.std /= (replications + 1)
     end
-    =#
 
     return state_series
 end
@@ -123,28 +134,6 @@ end
 #==============================================================================
 # Tauchen / Rouwenhorst
 ==============================================================================#
-"""
-    tauchen(
-    mean,
-    variance,
-    N,
-    m,
-    rho;
-    print_output=false
-    )
-
-Discretizes and simulates a continuous AR(1) process
-
-Positional Args
-mean: mean of the process being discretized
-variance: variance of the random process
-N: number of possible realizations yₖ
-m: multiple applied to unconditional standard deviation
-rho: coefficient on lag term
-
-Keyword Args
-print_output: debugging tool, prints some variables
-"""
 function tauchen(
     mean,
     variance,
@@ -204,26 +193,6 @@ function tauchen(
     return MarkovChain(Θ, states, missing, missing, missing)
 end
 
-"""
-    rouwenhorst(
-    mean,
-    variance,
-    N,
-    rho;
-    print_output=false
-    )
-
-Discretizes and simulates a continuous AR(1) process
-
-Positional Args
-mean: mean of the process being discretized
-variance: variance of the random process
-N: number of possible realizations yₖ
-rho: coefficient on lag term
-
-Keyword Args
-print_output: debugging tool, prints some variables
-"""
 function rouwenhorst(
     mean,
     variance,
@@ -311,57 +280,52 @@ end
 #==============================================================================
 # Problem 1 Results
 ==============================================================================#
-markov = tauchen(w̄, vₑ, 5, 3, 0.9; print_output=false)
-yts5 = simulate(markov, 10000, 5, 0)
-markov = tauchen(w̄, vₑ, 11, 3, 0.9; print_output=false)
-yts11 = simulate(markov, 10000, 15, 0)
-markov = tauchen(w̄98, vₑ98, 5, 3, 0.98; print_output=false)
-yts5p = simulate(markov, 10000, 5, 0)
-markov = rouwenhorst(w̄, vₑ, 5, 0.9; print_output=false)
-yrs5 = simulate(markov, 10000, 5, 0)
-markov = rouwenhorst(w̄98, vₑ98, 5, 0.98; print_output=false)
-yrs5p = simulate(markov, 10000, 5, 0)
-
 println("\n\nProblem 1a)")
+markov = tauchen(w̄, vₑ, 5, 3, 0.9; print_output=false)
+yts5 = simulate(markov, 10000, 5, 100; random_state=42)
 println("Sample moments (T5):")
-println("Mean: ", round(stats.mean(yts5), digits=3))
-println("Variance: ", round(stats.var(yts5), digits=3))
-
+println("Mean: ", round(markov.mean, digits=3))
+println("Variance: ", round(markov.var, digits=3))
 println("\nTheoretical moments:")
 println("Mean: ", round(tmean, digits=3))
 println("Variance: ", round(tvar, digits=3))
 
 println("\n\nProblem 1b)")
+markov = tauchen(w̄, vₑ, 11, 3, 0.9; print_output=false)
+yts11 = simulate(markov, 10000, 15, 100; random_state=42)
 println("Sample moments (T11):")
-println("Mean: ", round(stats.mean(yts11), digits=3))
-println("Variance: ", round(stats.var(yts11), digits=3))
-
+println("Mean: ", round(markov.mean, digits=3))
+println("Variance: ", round(markov.var, digits=3))
 println("\nTheoretical moments:")
 println("Mean: ", round(tmean, digits=3))
 println("Variance: ", round(tvar, digits=3))
 
 println("\n\nProblem 1c)")
+markov = rouwenhorst(w̄, vₑ, 5, 0.9; print_output=false)
+yrs5 = simulate(markov, 10000, 5, 100; random_state=42)
 println("Sample moments (R5):")
-println("Mean: ", round(stats.mean(yrs5), digits=3))
-println("Variance: ", round(stats.var(yrs5), digits=3))
-
+println("Mean: ", round(markov.mean, digits=3))
+println("Variance: ", round(markov.var, digits=3))
+markov = tauchen(w̄, vₑ, 5, 3, 0.9; print_output=false)
+yts5 = simulate(markov, 10000, 5, 100; random_state=42)
 println("\nSample moments (T5):")
-println("Mean: ", round(stats.mean(yts5), digits=3))
-println("Variance: ", round(stats.var(yts5), digits=3))
-
+println("Mean: ", round(markov.mean, digits=3))
+println("Variance: ", round(markov.var, digits=3))
 println("\nTheoretical moments:")
 println("Mean: ", round(tmean, digits=3))
 println("Variance: ", round(tvar, digits=3))
 
 println("\n\nProblem 1d)")
-println("Sample moments (R5, ρ=0.98):")
-println("Mean: ", round(stats.mean(yrs5p), digits=3))
-println("Variance: ", round(stats.var(yrs5p), digits=3))
-
-println("\nSample moments (T5, ρ=0.98):")
-println("Mean: ", round(stats.mean(yts5p), digits=3))
-println("Variance: ", round(stats.var(yts5p), digits=3))
-
+markov = tauchen(w̄98, vₑ98, 5, 3, 0.98; print_output=false)
+yts5p = simulate(markov, 10000, 5, 100; random_state=42)
+println("Sample moments (T5, ρ=0.98):")
+println("Mean: ", round(markov.mean, digits=3))
+println("Variance: ", round(markov.var, digits=3))
+markov = rouwenhorst(w̄98, vₑ98, 5, 0.98; print_output=false)
+yrs5p = simulate(markov, 10000, 5, 100; random_state=42)
+println("\nSample moments (R5, ρ=0.98):")
+println("Mean: ", round(markov.mean, digits=3))
+println("Variance: ", round(markov.var, digits=3))
 println("\nTheoretical moments (ρ=0.98):")
 println("Mean: ", round(tmean98, digits=3))
 println("Variance: ", round(tvar98, digits=3))
@@ -370,14 +334,14 @@ println("Variance: ", round(tvar98, digits=3))
 # Sanity Check
 ==============================================================================#
 mc5qe = qe.tauchen(5, ρ, σₑ, w̄, 3)
-yts5qe = qe.simulate(mc5qe, 100000)
+yts5qe = qe.simulate(mc5qe, 10000)
 mc11qe = qe.tauchen(11, ρ, σₑ, w̄, 3)
-yts11qe = qe.simulate(mc11qe, 100000)
+yts11qe = qe.simulate(mc11qe, 10000)
 
 mcr5qe = qe.rouwenhorst(5, ρ, σₑ, w̄)
-yrs5qe = qe.simulate(mcr5qe, 100000)
+yrs5qe = qe.simulate(mcr5qe, 10000)
 mcr598qe = qe.rouwenhorst(5, 0.98, σₑ98, w̄98)
-yrs598qe = qe.simulate(mcr598qe, 100000)
+yrs598qe = qe.simulate(mcr598qe, 10000)
 
 println("\nProblem 1a) (QuantEcon)")
 println("Sample moments:")
