@@ -256,6 +256,103 @@ function rouwenhorst(
 end
 
 #==============================================================================
+# Utility functions
+==============================================================================#
+function u(c, gamma)
+    return c^(1 - gamma) / (1 - gamma)
+end
+
+function u_c(c, gamma)
+    return c^(-gamma)
+end
+
+function Eu_c_y(states, y, a1, a2, R, gamma, P)
+    N = length(states)
+
+    i_y = findfirst(state -> state == y, states)
+    P_y = P[(i_y-1)*N+1:i_y*N]
+    u_c_y = Array{Float64}(undef, N)
+    for i = 1:N
+        u_c_y[i] = u_c(R*a1 - a2 + states[i], gamma)
+    end
+    return P_y' * u_c_y
+end
+
+function cEuler(states, y, a, a1, a2, R, beta, gamma, P)
+    return u_c(R*a + y - a1, gamma) -
+        beta * R * Eu_c_y(states, y, a1, a2, R, gamma, P)
+end
+
+function pfi_discretization(markovchain, grid_length, phi, nu, R, beta, gamma; print_output=false)
+    states = exp.(markovchain.states)
+    P = markovchain.theta
+    N = length(states)
+
+    #a_max = maximum(states)
+    a_max = 20
+    a1_max = R*20
+
+    A = Array{Float64}(undef, grid_length)
+    A[1] = phi
+    A[grid_length] = a_max
+    for i = 2:grid_length-1
+        A[i] = A[1] + (A[grid_length] - A[1])*((i - 1) / (grid_length - 1))^nu
+    end
+
+    A1 = Array{Float64}(undef, grid_length)
+    A1[1] = phi
+    A1[grid_length] = a1_max
+    for i = 2:grid_length-1
+        A1[i] = A1[1] + (A1[grid_length] - A1[1])*((i - 1) / (grid_length - 1))^nu
+    end
+
+    Ay1 = Array{Float64}(undef, grid_length*N)
+    for i = 1:grid_length
+        for j = 1:N
+            Ay1[(i-1)*N + j] = -1
+        end
+    end
+
+    Ay2 = Array{Float64}(undef, grid_length*N)
+    for i = 1:grid_length
+        for j = 1:N
+            Ay2[(i-1)*N + j] = A1[i]
+        end
+    end
+
+    for i = 1:grid_length
+        for j = 1:N
+            ijk = cEuler(states, states[j], A[i], A1[1], A2[(1-1)*N + j], R, beta, gamma, P)
+            if print_output
+                println(i, ", ", j, ": ", ijk)
+            end
+            if ijk >= 0
+                Ay1[(i-1)*N + j] = A1[1]
+            else
+                for k = 2:grid_length
+                    ijk1 = cEuler(states, states[j], A[i], A1[k], A2[(k-1)*N + j], R, beta, gamma, P)
+                    if print_output
+                        println(i, ", ", j, ": ", ijk1)
+                    end
+                    if ijk1 >= 0
+                        if abs(ijk1) <= abs(ijk)
+                            Ay1[(i-1)*N + j] = A1[k]
+                        else
+                            Ay1[(i-1)*N + j] = A1[k-1]
+                        end
+                        break
+                    else
+                        ijk = ijk1
+                    end
+                end
+            end
+        end
+    end
+
+    return Ay1
+end
+
+#==============================================================================
 # Problem 2
 ==============================================================================#
 # Consumption-savings parameters
@@ -269,7 +366,6 @@ R = 1 + r
 vₑ = 0.06
 σₑ = sqrt(vₑ)
 μₑ = 0
-Dₑ = dist.Normal(μₑ, σₑ)
 ρ = 0.90
 w̄ = -vₑ / (2*(1 + ρ))
 v = σₑ / (1 - ρ^2)
@@ -277,46 +373,16 @@ v = σₑ / (1 - ρ^2)
 μ = w̄ / (1 - ρ)
 
 # Grid parameters
-M = 500
+M = 20
 ν = 1
 
 # Markov chain parameters
 N = 5
 
-# Value and utility functions
-function u(c, gamma)
-    return c^(1 - gamma) / (1 - gamma)
+markov = rouwenhorst(w̄, vₑ, 5, ρ)
+
+Ay1 = pfi_discretization(markov, M, ϕ, ν, R, β, γ)
+
+for i = 1:M
+    println(Ay1[(i - 1)*N + 1:(i - 1)*N + N])
 end
-
-function u_c(c, gamma)
-    return c^(-gamma)
-end
-
-function Eu_c_y(states, y, c, a1, a2, R, gamma, P)
-    N = length(states)
-    i_y = findfirst(state -> state == y, states)
-    P_y = P[(i_y-1)*N+1:i_y*N]
-    u_c_y = Array{Float64}(undef, N)
-    for i = 1:N
-        u_c_y[i] = u_c(R*a1 - a2 + states[i], gamma)
-    end
-    return P_y' * u_c_y
-end
-
-function cEuler(states, y, a, c, a1, a2, R, beta, gamma, P)
-    return u_c(R*a + y - a1, gamma) -
-        beta * R * Eu_c_y(states, y, c, a1, a2, R, gamma, P)
-end
-
-markov = rouwenhorst(w̄, vₑ, 5, ρ; print_output=false)
-states = markov.states
-P = markov.theta
-
-A = Array{Float64}(undef, M)
-A[1] = ϕ
-A[M] = 1
-for i = 2:M-1
-    A[i] = A[1] + (A[M] - A[1])*((i - 1) / (M - 1))^ν
-end
-
-
