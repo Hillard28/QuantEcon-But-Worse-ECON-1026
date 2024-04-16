@@ -1,7 +1,7 @@
-#==============================================================================
+#==========================================================================================
 # ECON-GA 1026 Problem Set 3
 # Ryan Gilland
-==============================================================================#
+==========================================================================================#
 import LinearAlgebra as linalg
 import Statistics as stats
 import Distributions as dist
@@ -9,9 +9,9 @@ import QuantEcon as qe
 import Random as random
 import Plots as plt
 
-#==============================================================================
+#==========================================================================================
 # Utility functions
-==============================================================================#
+==========================================================================================#
 function plot_series(y; ylim, display=true)
     x = range(0, length(y)-1, length=length(y))
     series_plot = plt.plot(x, y; ylims=(-ylim, ylim))
@@ -33,9 +33,9 @@ function print_theta(theta, N)
     end
 end
 
-#==============================================================================
+#==========================================================================================
 # Markov Chain
-==============================================================================#
+==========================================================================================#
 mutable struct MarkovChain
     theta::Array{Float64}
     states::Array{Float64}
@@ -109,9 +109,9 @@ function simulate!(markovchain, periods=1000, burn=0, replications=0; random_sta
     return state_series
 end
 
-#==============================================================================
+#==========================================================================================
 # Tauchen / Rouwenhorst
-==============================================================================#
+==========================================================================================#
 function tauchen(
     mean,
     variance,
@@ -239,9 +239,9 @@ function rouwenhorst(
     return MarkovChain(Θ, states, missing, missing, missing)
 end
 
-#==============================================================================
+#==========================================================================================
 # Utility functions
-==============================================================================#
+==========================================================================================#
 function u(c, gamma)
     return c^(1 - gamma) / (1 - gamma)
 end
@@ -263,30 +263,39 @@ function Eu_c_y(states, y, a1, a2, R, gamma, P)
 end
 
 function cEuler(states, y, a, a1, a2, R, beta, gamma, P)
-    return u_c(R*a + y - a1, gamma) -
-        beta * R * Eu_c_y(states, y, a1, a2, R, gamma, P)
+    return u_c(R*a + y - a1, gamma) - beta * R * Eu_c_y(states, y, a1, a2, R, gamma, P)
 end
 
-function pfi_discretization(markovchain, grid_length, phi, nu, R, beta, gamma; print_output=false)
+function pfi_discretization(
+    markovchain,
+    grid_length,
+    grid_max,
+    phi,
+    nu,
+    R,
+    beta,
+    gamma;
+    print_output=false
+    )
+
     states = exp.(markovchain.states)
     P = markovchain.theta
     N = length(states)
 
-    #a_max = maximum(states)
-    a_max = 20
-
     A = Array{Union{Float64, Missing}}(undef, grid_length)
     A[1] = phi
-    A[grid_length] = a_max
+    A[grid_length] = grid_max
     for i = 2:grid_length-1
-        A[i] = A[1] + (A[grid_length] - A[1])*((i - 1) / (grid_length - 1))^nu
+        A[i] = A[1] +
+            (A[grid_length] - A[1])*((i - 1) / (grid_length - 1))^nu
     end
 
     A1 = Array{Union{Float64, Missing}}(undef, grid_length)
     A1[1] = phi
-    A1[grid_length] = a_max
+    A1[grid_length] = grid_max
     for i = 2:grid_length-1
-        A1[i] = A1[1] + (A1[grid_length] - A1[1])*((i - 1) / (grid_length - 1))^nu
+        A1[i] = A1[1] +
+            (A1[grid_length] - A1[1])*((i - 1) / (grid_length - 1))^nu
     end
 
     Ay1 = Array{Union{Float64, Missing}}(undef, (grid_length, N))
@@ -305,7 +314,17 @@ function pfi_discretization(markovchain, grid_length, phi, nu, R, beta, gamma; p
 
     for i = 1:grid_length
         for j = 1:N
-            ijk = cEuler(states, states[j], A[i], A1[1], Ay2[i, j], R, beta, gamma, P)
+            ijk = cEuler(
+                states,
+                states[j],
+                A[i],
+                A1[1],
+                Ay2[1, j],
+                R,
+                beta,
+                gamma,
+                P
+            )
             if print_output
                 println(i, ", ", j, ": ", ijk)
             end
@@ -316,7 +335,17 @@ function pfi_discretization(markovchain, grid_length, phi, nu, R, beta, gamma; p
                     if print_output
                         println("After (", k, "): ", ijk)
                     end
-                    ijk1 = cEuler(states, states[j], A[i], A1[k], Ay2[k, j], R, beta, gamma, P)
+                    ijk1 = cEuler(
+                        states,
+                        states[j],
+                        A[i],
+                        A1[k],
+                        Ay2[k, j],
+                        R,
+                        beta,
+                        gamma,
+                        P
+                    )
                     if ijk1 >= 0
                         if abs(ijk1) <= abs(ijk)
                             Ay1[i, j] = A1[k]
@@ -338,9 +367,158 @@ function pfi_discretization(markovchain, grid_length, phi, nu, R, beta, gamma; p
     return A, Ay1
 end
 
-#==============================================================================
-# Problem 2
-==============================================================================#
+function bisection(
+    states,
+    P,
+    grid_max,
+    a,
+    y,
+    a2,
+    phi,
+    nu,
+    R,
+    beta,
+    gamma;
+    tolerance=1e-4,
+    print_output=false
+    )
+
+    spoint = phi
+    epoint = grid_max
+    mpoint = (spoint + epoint) / 2
+    spointE = cEuler(states, y, a, spoint, a2, R, beta, gamma, P)
+    if spointE >= 0.0 - tolerance
+        if print_output
+            println("ϕ is binding.")
+        end
+        return spoint
+    else
+        mpointE = cEuler(states, y, a, mpoint, a2, R, beta, gamma, P)
+        if 0.0 - tolerance <= mpointE && mpointE <= 0.0
+            if print_output
+                println("Converged to interior solution.")
+            end
+            return mpoint
+        elseif mpointE > 0.0
+            return bisection(
+                states,
+                P,
+                mpoint,
+                a,
+                y,
+                a2,
+                spoint,
+                nu,
+                R,
+                beta,
+                gamma;
+                tolerance=tolerance,
+                print_output=print_output
+            )
+        else
+            epointE = cEuler(states, y, a, epoint, a2, R, beta, gamma, P)
+            if 0.0 - tolerance <= epointE && epointE <= 0.0
+                if print_output
+                    println("Converged to interior solution.")
+                end
+                return epoint
+            elseif epointE > 0.0
+                return bisection(
+                    states,
+                    P,
+                    epoint,
+                    a,
+                    y,
+                    a2,
+                    mpoint,
+                    nu,
+                    R,
+                    beta,
+                    gamma;
+                    tolerance=tolerance,
+                    print_output=print_output
+                )
+            else
+                if print_output
+                    println("Failed to converge, consider increasing grid length.")
+                end
+                return missing
+            end
+        end
+    end
+end
+
+function pfi_interpolation(
+    markovchain,
+    grid_length,
+    grid_max,
+    phi,
+    nu,
+    R,
+    beta,
+    gamma;
+    tolerance=1e-4,
+    print_output=false
+    )
+    
+    states = exp.(markovchain.states)
+    P = markovchain.theta
+    N = length(states)
+
+    A = Array{Union{Float64, Missing}}(undef, grid_length)
+    A[1] = phi
+    A[grid_length] = grid_max
+    for i = 2:grid_length-1
+        A[i] = A[1] + (A[grid_length] - A[1])*((i - 1) / (grid_length - 1))^nu
+    end
+
+    A1 = Array{Union{Float64, Missing}}(undef, grid_length)
+    A1[1] = phi
+    A1[grid_length] = grid_max
+    for i = 2:grid_length-1
+        A1[i] = A1[1] + (A1[grid_length] - A1[1])*((i - 1) / (grid_length - 1))^nu
+    end
+
+    Ay1 = Array{Union{Float64, Missing}}(undef, (grid_length, N))
+    for i = 1:grid_length
+        for j = 1:N
+            Ay1[i, j] = missing
+        end
+    end
+
+    Ay2 = Array{Union{Float64, Missing}}(undef, (grid_length, N))
+    for i = 1:grid_length
+        for j = 1:N
+            Ay2[i, j] = A1[i]
+        end
+    end
+
+    for i = 1:grid_length
+        for j = 1:N
+            Ay1[i, j] = bisection(
+                states,
+                P,
+                grid_max,
+                A[i],
+                states[j],
+                Ay2[i, j],
+                phi,
+                nu,
+                R,
+                beta,
+                gamma;
+                tolerance=tolerance,
+                print_output=print_output
+            )
+        end
+    end
+
+    return A, Ay1
+end
+
+#==========================================================================================
+# Problem 2 (Discretization)
+==========================================================================================#
 # Consumption-savings parameters
 ϕ = 0.0
 γ = 2.0
@@ -360,17 +538,28 @@ v = σₑ / (1 - ρ^2)
 
 # Grid parameters
 M = 100
-ν = 2
+ν = 5
+a_M = 20
 
 # Markov chain parameters
 N = 5
 
 markov = rouwenhorst(w̄, vₑ, 5, ρ)
 
-A_policy, Ay1_policy = pfi_discretization(markov, M, ϕ, ν, R, β, γ; print_output=false)
+A_policy, Ay1_policy = pfi_discretization(
+    markov,
+    M,
+    a_M,
+    ϕ,
+    ν,
+    R,
+    β,
+    γ;
+    print_output=false
+)
 
 for i = 1:M
-    println(Ay1_policy[i, :])
+    println(round.(Ay1_policy[i, :], digits=3))
 end
 
 periods = 100
@@ -392,5 +581,25 @@ for t = 2:periods
 end
 
 for t = 1:periods
-    println(A1[t])
+    println(round(A1[t], digits=3))
+end
+
+#==========================================================================================
+# Problem 2 (Interpolation)
+==========================================================================================#
+A_policy, Ay1_policy = pfi_interpolation(
+    markov,
+    M,
+    a_M,
+    ϕ,
+    ν,
+    R,
+    β,
+    γ;
+    tolerance=1e-4,
+    print_output=true
+)
+
+for i = 1:M
+    println(round.(Ay1_policy[i, :], digits=3))
 end
