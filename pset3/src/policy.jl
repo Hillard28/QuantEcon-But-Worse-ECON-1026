@@ -44,7 +44,7 @@ mutable struct MarkovChain
     std::Union{Float64, Missing}
 end
 
-function simulate!(markovchain, periods=1000, burn=0, replications=0; random_state)
+function simulate!(markovchain, periods=1000, burn=0, replications=0; random_state=-1)
     if random_state >= 0
         random.seed!(random_state)
     end
@@ -53,7 +53,7 @@ function simulate!(markovchain, periods=1000, burn=0, replications=0; random_sta
     # Configure CDF
     Θ = Array{dist.Categorical{Float64, Vector{Float64}}}(undef, N)
     for i = 1:N
-        Θ[i] = dist.Categorical(markovchain.theta[(i-1)*N+1:i*N])
+        Θ[i] = dist.Categorical(markovchain.theta[i, :])
     end
 
     # Initialize index of realized states and run burn-in
@@ -145,15 +145,15 @@ function tauchen(
     D = dist.Normal(0, 1)
     
     # Transition matrix
-    Θ = Array{Float64}(undef, N^2)
+    Θ = Array{Float64}(undef, (N, N))
     for i = 1:N
         for j = 1:N
             if j == 1
-                Θ[(i-1)*N + j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/σ)
+                Θ[i, j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/σ)
             elseif j == N
-                Θ[(i-1)*N + j] = 1 - dist.cdf(D, (states[j] - d/2 - rho*states[i])/σ)
+                Θ[i, j] = 1 - dist.cdf(D, (states[j] - d/2 - rho*states[i])/σ)
             else
-                Θ[(i-1)*N + j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/σ) -
+                Θ[i, j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/σ) -
                     dist.cdf(D, (states[j] - d/2 - rho*states[i])/σ)
             end
         end
@@ -162,7 +162,7 @@ function tauchen(
     if print_output
         println("Θ:")
         for i = 1:N
-            println(round.(Θ[(i-1)*N+1:i*N], digits=3))
+            println(round.(Θ[i, :], digits=3))
         end
     end
     
@@ -205,11 +205,11 @@ function rouwenhorst(
     q = p
     
     # Transition matrix
-    Θₙ = Array{Float64}(undef, 4)
-    Θₙ[1] = p
-    Θₙ[2] = 1 - p
-    Θₙ[3] = 1 - q
-    Θₙ[4] = q
+    Θₙ = Array{Float64}(undef, (2, 2))
+    Θₙ[1, 1] = p
+    Θₙ[1, 2] = 1 - p
+    Θₙ[2, 1] = 1 - q
+    Θₙ[2, 2] = q
     Θ = Θₙ
     if N > 2
         global Θ
@@ -217,28 +217,12 @@ function rouwenhorst(
         for n = 3:N
             global Θ
             global Θₙ
-            Θ = zeros(n^2)
-            for i = 1:n
-                for j = 1:n
-                    if i <= n-1 && j <= n-1
-                        Θ[(i-1)*n + j] += p*Θₙ[(i-1)*(n-1) + j]
-                    end
-                    if i <= n-1 && j >= 2
-                        Θ[(i-1)*n + j] += (1 - p)*Θₙ[(i-1)*(n-1) + (j-1)]
-                    end
-                    if i >= 2 && j <= n-1
-                        Θ[(i-1)*n + j] += (1 - q)*Θₙ[(i-2)*(n-1) + j]
-                    end
-                    if i >= 2 && j >= 2
-                        Θ[(i-1)*n + j] += q*Θₙ[(i-2)*(n-1) + (j-1)]
-                    end
-                end
-            end
-            for i = 2:n-1
-                for j = 1:n
-                    Θ[(i-1)*n + j] /= 2
-                end
-            end
+            Θ = zeros((n, n))
+            Θ[1:n-1, 1:n-1] += p .* Θₙ
+            Θ[1:n-1, 2:n] += (1 - p) .* Θₙ
+            Θ[2:n, 1:n-1] += (1 - q) .* Θₙ
+            Θ[2:n, 2:n] += q .* Θₙ
+            Θ[2:n-1, :] ./= 2
             Θₙ = Θ
         end
     end
@@ -246,7 +230,7 @@ function rouwenhorst(
     if print_output
         println("Θ:")
         for i = 1:N
-            println(round.(Θ[(i-1)*N+1:i*N], digits=3))
+            println(round.(Θ[i, :], digits=3))
         end
     end
 
@@ -270,7 +254,7 @@ function Eu_c_y(states, y, a1, a2, R, gamma, P)
     N = length(states)
 
     i_y = findfirst(state -> state == y, states)
-    P_y = P[(i_y-1)*N+1:i_y*N]
+    P_y = P[i_y, :]
     u_c_y = Array{Float64}(undef, N)
     for i = 1:N
         u_c_y[i] = u_c(R*a1 - a2 + states[i], gamma)
@@ -290,66 +274,68 @@ function pfi_discretization(markovchain, grid_length, phi, nu, R, beta, gamma; p
 
     #a_max = maximum(states)
     a_max = 20
-    a1_max = R*20
 
-    A = Array{Float64}(undef, grid_length)
+    A = Array{Union{Float64, Missing}}(undef, grid_length)
     A[1] = phi
     A[grid_length] = a_max
     for i = 2:grid_length-1
         A[i] = A[1] + (A[grid_length] - A[1])*((i - 1) / (grid_length - 1))^nu
     end
 
-    A1 = Array{Float64}(undef, grid_length)
+    A1 = Array{Union{Float64, Missing}}(undef, grid_length)
     A1[1] = phi
-    A1[grid_length] = a1_max
+    A1[grid_length] = a_max
     for i = 2:grid_length-1
         A1[i] = A1[1] + (A1[grid_length] - A1[1])*((i - 1) / (grid_length - 1))^nu
     end
 
-    Ay1 = Array{Float64}(undef, grid_length*N)
+    Ay1 = Array{Union{Float64, Missing}}(undef, (grid_length, N))
     for i = 1:grid_length
         for j = 1:N
-            Ay1[(i-1)*N + j] = -1
+            Ay1[i, j] = missing
         end
     end
 
-    Ay2 = Array{Float64}(undef, grid_length*N)
+    Ay2 = Array{Union{Float64, Missing}}(undef, (grid_length, N))
     for i = 1:grid_length
         for j = 1:N
-            Ay2[(i-1)*N + j] = A1[i]
+            Ay2[i, j] = A1[i]
         end
     end
 
     for i = 1:grid_length
         for j = 1:N
-            ijk = cEuler(states, states[j], A[i], A1[1], A2[(1-1)*N + j], R, beta, gamma, P)
+            ijk = cEuler(states, states[j], A[i], A1[1], Ay2[i, j], R, beta, gamma, P)
             if print_output
                 println(i, ", ", j, ": ", ijk)
             end
             if ijk >= 0
-                Ay1[(i-1)*N + j] = A1[1]
+                Ay1[i, j] = A1[1]
             else
                 for k = 2:grid_length
-                    ijk1 = cEuler(states, states[j], A[i], A1[k], A2[(k-1)*N + j], R, beta, gamma, P)
                     if print_output
-                        println(i, ", ", j, ": ", ijk1)
+                        println("After (", k, "): ", ijk)
                     end
+                    ijk1 = cEuler(states, states[j], A[i], A1[k], Ay2[k, j], R, beta, gamma, P)
                     if ijk1 >= 0
                         if abs(ijk1) <= abs(ijk)
-                            Ay1[(i-1)*N + j] = A1[k]
+                            Ay1[i, j] = A1[k]
                         else
-                            Ay1[(i-1)*N + j] = A1[k-1]
+                            Ay1[i, j] = A1[k-1]
                         end
                         break
                     else
                         ijk = ijk1
+                        if print_output
+                            println("Before (", k, "): ", ijk)
+                        end
                     end
                 end
             end
         end
     end
 
-    return Ay1
+    return A, Ay1
 end
 
 #==============================================================================
@@ -373,16 +359,38 @@ v = σₑ / (1 - ρ^2)
 μ = w̄ / (1 - ρ)
 
 # Grid parameters
-M = 20
-ν = 1
+M = 100
+ν = 2
 
 # Markov chain parameters
 N = 5
 
 markov = rouwenhorst(w̄, vₑ, 5, ρ)
 
-Ay1 = pfi_discretization(markov, M, ϕ, ν, R, β, γ)
+A_policy, Ay1_policy = pfi_discretization(markov, M, ϕ, ν, R, β, γ; print_output=false)
 
 for i = 1:M
-    println(Ay1[(i - 1)*N + 1:(i - 1)*N + N])
+    println(Ay1_policy[i, :])
+end
+
+periods = 100
+Y = exp.(simulate!(markov, periods, 1000, 0))
+states = exp.(markov.states)
+A = Array{Union{Float64, Missing}}(undef, periods)
+#A[1] = A_policy[rand(1:M)]
+A[1] = 0.0
+A1 = Array{Union{Float64, Missing}}(undef, periods)
+j = findfirst(state -> state == Y[1], states)
+i = findfirst(asset -> asset == A[1], A_policy)
+A1[1] = Ay1_policy[i, j]
+for t = 2:periods
+    global i, j
+    A[t] = A1[t - 1]
+    j = findfirst(state -> state == Y[t], states)
+    i = findfirst(asset -> asset == A[t], A_policy)
+    A1[t] = Ay1_policy[i, j]
+end
+
+for t = 1:periods
+    println(A1[t])
 end

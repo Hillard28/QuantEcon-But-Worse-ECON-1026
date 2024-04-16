@@ -67,7 +67,7 @@ mutable struct MarkovChain
     std::Union{Float64, Missing}
 end
 
-function simulate!(markovchain, periods=1000, burn=0, replications=0; random_state)
+function simulate!(markovchain, periods=1000, burn=0, replications=0; random_state=-1)
     if random_state >= 0
         random.seed!(random_state)
     end
@@ -76,7 +76,7 @@ function simulate!(markovchain, periods=1000, burn=0, replications=0; random_sta
     # Configure CDF
     Θ = Array{dist.Categorical{Float64, Vector{Float64}}}(undef, N)
     for i = 1:N
-        Θ[i] = dist.Categorical(markovchain.theta[(i-1)*N+1:i*N])
+        Θ[i] = dist.Categorical(markovchain.theta[i, :])
     end
 
     # Initialize index of realized states and run burn-in
@@ -168,15 +168,15 @@ function tauchen(
     D = dist.Normal(0, 1)
     
     # Transition matrix
-    Θ = Array{Float64}(undef, N^2)
+    Θ = Array{Float64}(undef, (N, N))
     for i = 1:N
         for j = 1:N
             if j == 1
-                Θ[(i-1)*N + j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/σ)
+                Θ[i, j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/σ)
             elseif j == N
-                Θ[(i-1)*N + j] = 1 - dist.cdf(D, (states[j] - d/2 - rho*states[i])/σ)
+                Θ[i, j] = 1 - dist.cdf(D, (states[j] - d/2 - rho*states[i])/σ)
             else
-                Θ[(i-1)*N + j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/σ) -
+                Θ[i, j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/σ) -
                     dist.cdf(D, (states[j] - d/2 - rho*states[i])/σ)
             end
         end
@@ -185,7 +185,7 @@ function tauchen(
     if print_output
         println("Θ:")
         for i = 1:N
-            println(round.(Θ[(i-1)*N+1:i*N], digits=3))
+            println(round.(Θ[i, :], digits=3))
         end
     end
     
@@ -228,11 +228,11 @@ function rouwenhorst(
     q = p
     
     # Transition matrix
-    Θₙ = Array{Float64}(undef, 4)
-    Θₙ[1] = p
-    Θₙ[2] = 1 - p
-    Θₙ[3] = 1 - q
-    Θₙ[4] = q
+    Θₙ = Array{Float64}(undef, (2, 2))
+    Θₙ[1, 1] = p
+    Θₙ[1, 2] = 1 - p
+    Θₙ[2, 1] = 1 - q
+    Θₙ[2, 2] = q
     Θ = Θₙ
     if N > 2
         global Θ
@@ -240,28 +240,12 @@ function rouwenhorst(
         for n = 3:N
             global Θ
             global Θₙ
-            Θ = zeros(n^2)
-            for i = 1:n
-                for j = 1:n
-                    if i <= n-1 && j <= n-1
-                        Θ[(i-1)*n + j] += p*Θₙ[(i-1)*(n-1) + j]
-                    end
-                    if i <= n-1 && j >= 2
-                        Θ[(i-1)*n + j] += (1 - p)*Θₙ[(i-1)*(n-1) + (j-1)]
-                    end
-                    if i >= 2 && j <= n-1
-                        Θ[(i-1)*n + j] += (1 - q)*Θₙ[(i-2)*(n-1) + j]
-                    end
-                    if i >= 2 && j >= 2
-                        Θ[(i-1)*n + j] += q*Θₙ[(i-2)*(n-1) + (j-1)]
-                    end
-                end
-            end
-            for i = 2:n-1
-                for j = 1:n
-                    Θ[(i-1)*n + j] /= 2
-                end
-            end
+            Θ = zeros((n, n))
+            Θ[1:n-1, 1:n-1] += p .* Θₙ
+            Θ[1:n-1, 2:n] += (1 - p) .* Θₙ
+            Θ[2:n, 1:n-1] += (1 - q) .* Θₙ
+            Θ[2:n, 2:n] += q .* Θₙ
+            Θ[2:n-1, :] ./= 2
             Θₙ = Θ
         end
     end
@@ -269,7 +253,7 @@ function rouwenhorst(
     if print_output
         println("Θ:")
         for i = 1:N
-            println(round.(Θ[(i-1)*N+1:i*N], digits=3))
+            println(round.(Θ[i, :], digits=3))
         end
     end
 
@@ -335,14 +319,14 @@ println("Variance: ", round(tvar98, digits=3))
 # Sanity Check
 ==============================================================================#
 mc5qe = qe.tauchen(5, ρ, σₑ, w̄, 3)
-yts5qe = qe.simulate!(mc5qe, 10000)
+yts5qe = qe.simulate(mc5qe, 10000)
 mc11qe = qe.tauchen(11, ρ, σₑ, w̄, 3)
-yts11qe = qe.simulate!(mc11qe, 10000)
+yts11qe = qe.simulate(mc11qe, 10000)
 
 mcr5qe = qe.rouwenhorst(5, ρ, σₑ, w̄)
-yrs5qe = qe.simulate!(mcr5qe, 10000)
+yrs5qe = qe.simulate(mcr5qe, 10000)
 mcr598qe = qe.rouwenhorst(5, 0.98, σₑ98, w̄98)
-yrs598qe = qe.simulate!(mcr598qe, 10000)
+yrs598qe = qe.simulate(mcr598qe, 10000)
 
 println("\nProblem 1a) (QuantEcon)")
 println("Sample moments:")
