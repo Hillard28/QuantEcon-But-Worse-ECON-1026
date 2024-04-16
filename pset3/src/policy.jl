@@ -10,30 +10,6 @@ import Random as random
 import Plots as plt
 
 #==========================================================================================
-# Utility functions
-==========================================================================================#
-function plot_series(y; ylim, display=true)
-    x = range(0, length(y)-1, length=length(y))
-    series_plot = plt.plot(x, y; ylims=(-ylim, ylim))
-    if display
-        plt.display(series_plot)
-    end
-end
-
-function plot_histogram(y; bins=:auto, display=true)
-    histogram_plot = plt.histogram(y, bins=bins)
-    if display
-        plt.display(histogram_plot)
-    end
-end
-
-function print_theta(theta, N)
-    for i = 1:N
-        println(round.(theta[(i-1)*N+1:i*N], digits=3))
-    end
-end
-
-#==========================================================================================
 # Markov Chain
 ==========================================================================================#
 mutable struct MarkovChain
@@ -240,7 +216,7 @@ function rouwenhorst(
 end
 
 #==========================================================================================
-# Utility functions
+# Utility and asset grid functions
 ==========================================================================================#
 function u(c, gamma)
     return c^(1 - gamma) / (1 - gamma)
@@ -367,14 +343,14 @@ function pfi_discretization(
     return A, Ay1
 end
 
-function bisection(
+function bisection_outer(
     states,
     P,
-    grid_max,
+    spoint,
+    epoint,
     a,
     y,
     a2,
-    phi,
     nu,
     R,
     beta,
@@ -383,31 +359,81 @@ function bisection(
     print_output=false
     )
 
-    spoint = phi
-    epoint = grid_max
+    a1 = bisection_inner(
+        states,
+        P,
+        spoint,
+        epoint,
+        a,
+        y,
+        a2,
+        nu,
+        R,
+        beta,
+        gamma;
+        tolerance=tolerance,
+        print_output=print_output
+    )
+    if typeof(a1) == Missing
+        return a1
+    elseif abs(a1 - a2) <= tolerance
+        return a1
+    else
+        if print_output
+            println("a' (", round(a1, digits=3), ") and a'' (", round(a2, digits=3), ") not sufficiently close, rerunning.")
+        end
+        return bisection_outer(
+            states,
+            P,
+            spoint,
+            epoint,
+            a,
+            y,
+            a1,
+            nu,
+            R,
+            beta,
+            gamma;
+            tolerance=tolerance,
+            print_output=print_output
+        )
+    end
+end
+
+function bisection_inner(
+    states,
+    P,
+    spoint,
+    epoint,
+    a,
+    y,
+    a2,
+    nu,
+    R,
+    beta,
+    gamma;
+    tolerance=1e-4,
+    print_output=false
+    )
+
     mpoint = (spoint + epoint) / 2
     spointE = cEuler(states, y, a, spoint, a2, R, beta, gamma, P)
     if spointE >= 0.0 - tolerance
         if print_output
-            println("ϕ is binding.")
+            println("Phi is binding.")
         end
         return spoint
     else
         mpointE = cEuler(states, y, a, mpoint, a2, R, beta, gamma, P)
-        if 0.0 - tolerance <= mpointE && mpointE <= 0.0
-            if print_output
-                println("Converged to interior solution.")
-            end
-            return mpoint
-        elseif mpointE > 0.0
-            return bisection(
+        if mpointE > 0.0 + tolerance
+            return bisection_inner(
                 states,
                 P,
+                spoint,
                 mpoint,
                 a,
                 y,
                 a2,
-                spoint,
                 nu,
                 R,
                 beta,
@@ -415,22 +441,22 @@ function bisection(
                 tolerance=tolerance,
                 print_output=print_output
             )
+        elseif abs(mpointE) <= 0.0 + tolerance
+            if print_output
+                println("Converged to interior solution.")
+            end
+            return mpoint
         else
             epointE = cEuler(states, y, a, epoint, a2, R, beta, gamma, P)
-            if 0.0 - tolerance <= epointE && epointE <= 0.0
-                if print_output
-                    println("Converged to interior solution.")
-                end
-                return epoint
-            elseif epointE > 0.0
-                return bisection(
+            if epointE > 0.0 + tolerance
+                return bisection_inner(
                     states,
                     P,
+                    mpoint,
                     epoint,
                     a,
                     y,
                     a2,
-                    mpoint,
                     nu,
                     R,
                     beta,
@@ -438,9 +464,14 @@ function bisection(
                     tolerance=tolerance,
                     print_output=print_output
                 )
+            elseif abs(epointE) <= 0.0 + tolerance
+                if print_output
+                    println("Converged to interior solution.")
+                end
+                return epoint
             else
                 if print_output
-                    println("Failed to converge, consider increasing grid length.")
+                    println("Failed to converge, consider increasing grid_max.")
                 end
                 return missing
             end
@@ -495,14 +526,17 @@ function pfi_interpolation(
 
     for i = 1:grid_length
         for j = 1:N
-            Ay1[i, j] = bisection(
+            if print_output
+                println("i: ", i, ", j: ", j)
+            end
+            Ay1[i, j] = bisection_outer(
                 states,
                 P,
+                phi,
                 grid_max,
                 A[i],
                 states[j],
                 Ay2[i, j],
-                phi,
                 nu,
                 R,
                 beta,
@@ -566,8 +600,7 @@ periods = 100
 Y = exp.(simulate!(markov, periods, 1000, 0))
 states = exp.(markov.states)
 A = Array{Union{Float64, Missing}}(undef, periods)
-#A[1] = A_policy[rand(1:M)]
-A[1] = 0.0
+A[1] = A_policy[rand(1:M)]
 A1 = Array{Union{Float64, Missing}}(undef, periods)
 j = findfirst(state -> state == Y[1], states)
 i = findfirst(asset -> asset == A[1], A_policy)
@@ -587,6 +620,33 @@ end
 #==========================================================================================
 # Problem 2 (Interpolation)
 ==========================================================================================#
+# Consumption-savings parameters
+ϕ = 0.0
+γ = 2.0
+β = 0.95
+r = 0.02
+R = 1 + r
+
+# Income process parameters
+vₑ = 0.06
+σₑ = sqrt(vₑ)
+μₑ = 0
+ρ = 0.90
+w̄ = -vₑ / (2*(1 + ρ))
+v = σₑ / (1 - ρ^2)
+σ = sqrt(v)
+μ = w̄ / (1 - ρ)
+
+# Grid parameters
+M = 100
+ν = 5
+a_M = 20
+
+# Markov chain parameters
+N = 5
+
+markov = rouwenhorst(w̄, vₑ, 5, ρ)
+
 A_policy, Ay1_policy = pfi_interpolation(
     markov,
     M,
@@ -597,9 +657,61 @@ A_policy, Ay1_policy = pfi_interpolation(
     β,
     γ;
     tolerance=1e-4,
-    print_output=true
+    print_output=false
 )
 
 for i = 1:M
     println(round.(Ay1_policy[i, :], digits=3))
 end
+
+periods = 100
+Y = exp.(simulate!(markov, periods, 1000, 0))
+states = exp.(markov.states)
+P = markov.theta
+A1 = Array{Union{Float64, Missing}}(undef, periods)
+a0 = A_policy[rand(1:M)]
+a2 = a0
+A1[1] = bisection_outer(
+    states,
+    P,
+    ϕ,
+    a_M,
+    a0,
+    Y[1],
+    a2,
+    ν,
+    R,
+    β,
+    γ;
+    tolerance=1e-4,
+    print_output=true
+)
+for t = 2:periods
+    A1[t] = bisection_outer(
+        states,
+        P,
+        ϕ,
+        a_M,
+        A1[t-1],
+        Y[t],
+        A1[t-1],
+        ν,
+        R,
+        β,
+        γ;
+        tolerance=1e-4,
+        print_output=true
+    )
+end
+
+C = Array{Union{Float64, Missing}}(undef, periods)
+C[1] = Y[1] + R*a0 - A1[1]
+for t = 2:periods
+    C[t] = Y[t] + R*A1[t-1] - A1[t]
+end
+
+T = range(1, periods, length=periods)
+series_plot = plt.plot(T, Y; label="Endowment")
+series_plot = plt.plot!(T, C; label="Consumption")
+series_plot = plt.plot!(T, A1; label="Assets")
+plt.display(series_plot)

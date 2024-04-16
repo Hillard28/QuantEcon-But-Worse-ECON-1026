@@ -10,30 +10,6 @@ import Random as random
 import Plots as plt
 
 #==============================================================================
-# Utility functions
-==============================================================================#
-function plot_series(y; ylim, display=true)
-    x = range(0, length(y)-1, length=length(y))
-    series_plot = plt.plot(x, y; ylims=(-ylim, ylim))
-    if display
-        plt.display(series_plot)
-    end
-end
-
-function plot_histogram(y; bins=:auto, display=true)
-    histogram_plot = plt.histogram(y, bins=bins)
-    if display
-        plt.display(histogram_plot)
-    end
-end
-
-function print_theta(theta, N)
-    for i = 1:N
-        println(round.(theta[(i-1)*N+1:i*N], digits=3))
-    end
-end
-
-#==============================================================================
 # Compute Moments
 ==============================================================================#
 vₑ = 0.06
