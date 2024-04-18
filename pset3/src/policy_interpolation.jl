@@ -509,33 +509,59 @@ for i = 1:M
     println(round.(Ay1_policy[i, :], digits=3))
 end
 
-
-
-
-#=
-ys = exp.(markov.states)
-theta = markov.theta
-amax = 30
-y = ys[3]
-inv_step = 5
-a = 20
-a2 = 20.2
-A2 = [a2; a2; a2; a2; a2]
-index = Array{Float64}(undef, (amax+1) * inv_step)
-Euler = Array{Float64}(undef, (amax+1) * inv_step)
-idx = 1
-for i = 0:1/inv_step:amax
-    a1 = i
-    index[idx] = i
-    Euler[idx] = cEuler(ys, y, a, a1, A2, R, β, γ, theta)
-    global idx += 1
-end
-
-plt.plot(index, Euler)
-
-for i = 2:idx
-    if Euler[i-1] < 0 && Euler[i] >= 0
-        println(index[i])
+#==========================================================================================
+# Simulation
+==========================================================================================#
+periods = 100
+Y = exp.(simulate!(markov, periods, 1000, 0))
+A = Array{Union{Float64, Missing}}(undef, periods)
+A[1] = A_policy[rand(1:M)]
+A1 = Array{Union{Float64, Missing}}(undef, periods)
+j = findfirst(state -> state == Y[1], states)
+i = findfirst(asset -> asset == A[1], A_policy)
+A1[1] = Ay1_policy[i, j]
+for t = 2:periods
+    global j
+    A[t] = A1[t - 1]
+    j = findfirst(state -> state == Y[t], states)
+    for k = 1:length(Ay1_policy[:, j])-1
+        if Ay1_policy[k, j] == A[t]
+            A1[t] = Ay1_policy[k, j]
+            break
+        elseif Ay1_policy[k+1, j] == A[t]
+            A1[t] = Ay1_policy[k+1, j]
+            break
+        elseif Ay1_policy[k, j] < A[t] && A[t] < Ay1_policy[k+1, j]
+            A1[t] = Ay1_policy[k, j] + (A[t] - A_policy[k]) *
+                (Ay1_policy[k+1, j] - Ay1_policy[k, j]) /
+                (A_policy[k+1] - A_policy[k])
+            break
+        end
     end
 end
-=#
+
+C = Array{Union{Float64, Missing}}(undef, periods)
+for t = 1:periods
+    C[t] = Y[t] + R*A[t] - A1[t]
+end
+
+for t = 1:periods
+    println(
+        "Y[", t, "]: ", round(Y[t], digits=3),
+        "\tA[", t, "]: ", round(A[t], digits=3),
+        "\tA'[", t, "]: ", round(A1[t], digits=3),
+        "\tC[", t, "]: ", round(C[t], digits=3),
+    )
+end
+
+sim_plot = plt.plot(Y, label="Endowment")
+sim_plot = plt.plot!(A1, label="Savings")
+sim_plot = plt.plot!(C, label="Consumption")
+plt.display(sim_plot)
+
+Cshare_income = C ./ (R.*A .+ Y)
+Cshare_endowment = C ./ Y
+
+csim_plot = plt.plot(Cshare_income, label="Y + R*A")
+csim_plot = plt.plot!(Cshare_endowment, label="Y")
+plt.display(csim_plot)

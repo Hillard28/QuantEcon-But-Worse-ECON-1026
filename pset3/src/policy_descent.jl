@@ -381,7 +381,6 @@ end
 ==========================================================================================#
 periods = 100
 Y = exp.(simulate!(markov, periods, 1000, 0))
-states = exp.(markov.states)
 A = Array{Union{Float64, Missing}}(undef, periods)
 A[1] = A_policy[rand(1:M)]
 A1 = Array{Union{Float64, Missing}}(undef, periods)
@@ -389,13 +388,47 @@ j = findfirst(state -> state == Y[1], states)
 i = findfirst(asset -> asset == A[1], A_policy)
 A1[1] = Ay1_policy[i, j]
 for t = 2:periods
-    global i, j
+    global j
     A[t] = A1[t - 1]
     j = findfirst(state -> state == Y[t], states)
-    i = findfirst(asset -> asset == A[t], A_policy)
-    A1[t] = Ay1_policy[i, j]
+    for k = 1:length(Ay1_policy[:, j])-1
+        if Ay1_policy[k, j] == A[t]
+            A1[t] = Ay1_policy[k, j]
+            break
+        elseif Ay1_policy[k+1, j] == A[t]
+            A1[t] = Ay1_policy[k+1, j]
+            break
+        elseif Ay1_policy[k, j] < A[t] && A[t] < Ay1_policy[k+1, j]
+            A1[t] = Ay1_policy[k, j] + (A[t] - A_policy[k]) *
+                (Ay1_policy[k+1, j] - Ay1_policy[k, j]) /
+                (A_policy[k+1] - A_policy[k])
+            break
+        end
+    end
+end
+
+C = Array{Union{Float64, Missing}}(undef, periods)
+for t = 1:periods
+    C[t] = Y[t] + R*A[t] - A1[t]
 end
 
 for t = 1:periods
-    println(round(A1[t], digits=3))
+    println(
+        "Y[", t, "]: ", round(Y[t], digits=3),
+        "\tA[", t, "]: ", round(A[t], digits=3),
+        "\tA'[", t, "]: ", round(A1[t], digits=3),
+        "\tC[", t, "]: ", round(C[t], digits=3),
+    )
 end
+
+sim_plot = plt.plot(Y, label="Endowment")
+sim_plot = plt.plot!(A1, label="Savings")
+sim_plot = plt.plot!(C, label="Consumption")
+plt.display(sim_plot)
+
+Cshare_income = C ./ (R.*A .+ Y)
+Cshare_endowment = C ./ Y
+
+csim_plot = plt.plot(Cshare_income, label="Y + R*A")
+csim_plot = plt.plot!(Cshare_endowment, label="Y")
+plt.display(csim_plot)
