@@ -226,261 +226,176 @@ function u_c(c, gamma)
     return c^(-gamma)
 end
 
-function Eu_c_y(states, y, a1, a2, R, gamma, P)
+function Eu_c_y(states, y, a1, A2_y, R, gamma, P)
     N = length(states)
 
     i_y = findfirst(state -> state == y, states)
     P_y = P[i_y, :]
-    u_c_y = Array{Float64}(undef, N)
-    for i = 1:N
-        u_c_y[i] = u_c(R*a1 - a2 + states[i], gamma)
+    global u_c_y = 0.0
+    for j = 1:N
+        u_c_y += P_y[j] * u_c(R*a1 - A2_y[j] + states[j], gamma)
     end
-    return P_y' * u_c_y
+    return u_c_y
 end
 
-function cEuler(states, y, a, a1, a2, R, beta, gamma, P)
-    return u_c(R*a + y - a1, gamma) - beta * R * Eu_c_y(states, y, a1, a2, R, gamma, P)
+function cEuler(states, y, a, a1, A2_y, R, beta, gamma, P)
+    return u_c(R*a + y - a1, gamma) - beta * R * Eu_c_y(states, y, a1, A2_y, R, gamma, P)
 end
 
-function pfi_discretization(
-    markovchain,
+function bisection(
+    states,
+    P,
+    grid,
     grid_length,
-    grid_max,
-    phi,
-    nu,
+    spoint,
+    epoint,
+    a,
+    y,
+    A2,
     R,
     beta,
     gamma;
+    tolerance=1e-4,
+    init=true,
     print_output=false
     )
 
-    states = exp.(markovchain.states)
-    P = markovchain.theta
-    N = length(states)
-
-    A = Array{Union{Float64, Missing}}(undef, grid_length)
-    A[1] = phi
-    A[grid_length] = grid_max
-    for i = 2:grid_length-1
-        A[i] = A[1] +
-            (A[grid_length] - A[1])*((i - 1) / (grid_length - 1))^nu
-    end
-
-    A1 = Array{Union{Float64, Missing}}(undef, grid_length)
-    A1[1] = phi
-    A1[grid_length] = grid_max
-    for i = 2:grid_length-1
-        A1[i] = A1[1] +
-            (A1[grid_length] - A1[1])*((i - 1) / (grid_length - 1))^nu
-    end
-
-    Ay1 = Array{Union{Float64, Missing}}(undef, (grid_length, N))
-    for i = 1:grid_length
-        for j = 1:N
-            Ay1[i, j] = missing
+    if init
+        if print_output
+            println("a: ", round(a, digits=3))
         end
-    end
-
-    Ay2 = Array{Union{Float64, Missing}}(undef, (grid_length, N))
-    for i = 1:grid_length
-        for j = 1:N
-            Ay2[i, j] = A1[i]
-        end
-    end
-
-    for i = 1:grid_length
-        for j = 1:N
-            ijk = cEuler(
-                states,
-                states[j],
-                A[i],
-                A1[1],
-                Ay2[1, j],
-                R,
-                beta,
-                gamma,
-                P
-            )
-            if print_output
-                println(i, ", ", j, ": ", ijk)
-            end
-            if ijk >= 0
-                Ay1[i, j] = A1[1]
-            else
-                for k = 2:grid_length
-                    if print_output
-                        println("After (", k, "): ", ijk)
-                    end
-                    ijk1 = cEuler(
-                        states,
-                        states[j],
-                        A[i],
-                        A1[k],
-                        Ay2[k, j],
-                        R,
-                        beta,
-                        gamma,
-                        P
-                    )
-                    if ijk1 >= 0
-                        if abs(ijk1) <= abs(ijk)
-                            Ay1[i, j] = A1[k]
-                        else
-                            Ay1[i, j] = A1[k-1]
-                        end
-                        break
-                    else
-                        ijk = ijk1
-                        if print_output
-                            println("Before (", k, "): ", ijk)
-                        end
-                    end
+        if grid[1] == spoint
+            global A2m = A2[1, :]
+        else
+            for i = 1:grid_length - 1
+                if grid[i+1] == spoint
+                    global A2m = A2[i+1, :]
+                    break
+                elseif grid[i+1] > spoint
+                    global A2m = A2[i, :] .+ (spoint - grid[i]) .* ((A2[i+1, :] .- A2[i, :]) ./ (grid[i+1] - grid[i]))
+                    break
                 end
             end
         end
-    end
-
-    return A, Ay1
-end
-
-function bisection_outer(
-    states,
-    P,
-    spoint,
-    epoint,
-    a,
-    y,
-    a2,
-    nu,
-    R,
-    beta,
-    gamma;
-    tolerance=1e-4,
-    print_output=false
-    )
-
-    a1 = bisection_inner(
-        states,
-        P,
-        spoint,
-        epoint,
-        a,
-        y,
-        a2,
-        nu,
-        R,
-        beta,
-        gamma;
-        tolerance=tolerance,
-        print_output=print_output
-    )
-    if typeof(a1) == Missing
-        return a1
-    elseif abs(a1 - a2) <= tolerance
-        return a1
-    else
         if print_output
-            println("a' (", round(a1, digits=3), ") and a'' (", round(a2, digits=3), ") not sufficiently close, rerunning.")
+            println("A2_sy: ", round.(A2m, digits=3))
         end
-        return bisection_outer(
-            states,
-            P,
-            spoint,
-            epoint,
-            a,
-            y,
-            a1,
-            nu,
-            R,
-            beta,
-            gamma;
-            tolerance=tolerance,
-            print_output=print_output
-        )
-    end
-end
-
-function bisection_inner(
-    states,
-    P,
-    spoint,
-    epoint,
-    a,
-    y,
-    a2,
-    nu,
-    R,
-    beta,
-    gamma;
-    tolerance=1e-4,
-    print_output=false
-    )
-
-    mpoint = (spoint + epoint) / 2
-    spointE = cEuler(states, y, a, spoint, a2, R, beta, gamma, P)
-    if spointE >= 0.0 - tolerance
+        spointE = cEuler(states, y, a, spoint, A2m, R, beta, gamma, P)
         if print_output
-            println("Phi is binding.")
+            println("S: ", round(spointE, digits=3))
         end
-        return spoint
-    else
-        mpointE = cEuler(states, y, a, mpoint, a2, R, beta, gamma, P)
-        if mpointE > 0.0 + tolerance
-            return bisection_inner(
-                states,
-                P,
-                spoint,
-                mpoint,
-                a,
-                y,
-                a2,
-                nu,
-                R,
-                beta,
-                gamma;
-                tolerance=tolerance,
-                print_output=print_output
-            )
-        elseif abs(mpointE) <= 0.0 + tolerance
+        if spointE > 0.0 - tolerance
             if print_output
-                println("Converged to interior solution.")
+                println("Converged to interior solution at startpoint.")
+            end
+            return spoint
+        else
+            mpoint = (spoint + epoint) / 2
+            for i = 1:grid_length - 1
+                if grid[i+1] == mpoint
+                    global A2m = A2[i+1, :]
+                    break
+                elseif grid[i+1] > mpoint
+                    global A2m = A2[i, :] .+ (mpoint - grid[i]) .* ((A2[i+1, :] .- A2[i, :]) ./ (grid[i+1] - grid[i]))
+                    break
+                end
+            end
+            if print_output
+                println("A2_my: ", round.(A2m, digits=3))
+            end
+            mpointE = cEuler(states, y, a, mpoint, A2m, R, beta, gamma, P)
+            if print_output
+                println("M: ", round(mpointE, digits=3))
+            end
+            if abs(mpointE) <= 0.0 + tolerance
+                if print_output
+                    println("Converged to interior solution at midpoint.")
+                end
+                return mpoint
+            elseif mpointE > 0.0 + tolerance
+                if print_output
+                    println("Setting bounds to (spoint, mpoint).")
+                end
+                return bisection(states, P, grid, grid_length, spoint, mpoint, a, y, A2, R, beta, gamma; tolerance=tolerance, init=false, print_output=print_output)
+            else
+                if grid[grid_length] == epoint
+                    global A2m = A2[grid_length, :]
+                else
+                    for i = grid_length:-1:2
+                        if grid[i-1] == epoint
+                            global A2m = A2[i-1, :]
+                            break
+                        elseif grid[i-1] < epoint
+                            global A2m = A2[i-1, :] .+ (epoint - grid[i-1]) .* ((A2[i, :] .- A2[i-1, :]) ./ (grid[i] - grid[i-1]))
+                            break
+                        end
+                    end
+                end
+                if print_output
+                    println("A2_ey: ", round.(A2m, digits=3))
+                end
+                epointE = cEuler(states, y, a, epoint, A2m, R, beta, gamma, P)
+                if print_output
+                    println("E: ", round(epointE, digits=3))
+                end
+                if epointE < 0.0 - tolerance
+                    if print_output
+                        println("Expand grid length or adjust curvature.")
+                    end
+                    return epoint
+                elseif abs(epointE) <= 0.0 + tolerance
+                    if print_output
+                        println("Converged to interior solution at endpoint.")
+                    end
+                    return epoint
+                else
+                    if print_output
+                        println("Setting bounds to (mpoint, epoint).")
+                    end
+                    return bisection(states, P, grid, grid_length, mpoint, epoint, a, y, A2, R, beta, gamma; tolerance=tolerance, init=false, print_output=print_output)
+                end
+            end
+        end
+    else
+        mpoint = (spoint + epoint) / 2
+        for i = 1:grid_length - 1
+            if grid[i+1] == mpoint
+                global A2m = A2[i+1, :]
+                break
+            elseif grid[i+1] > mpoint
+                global A2m = A2[i, :] .+ (mpoint - grid[i]) .* ((A2[i+1, :] .- A2[i, :]) ./ (grid[i+1] - grid[i]))
+                break
+            end
+        end
+        if print_output
+            println("A2_my: ", round.(A2m, digits=3))
+        end
+        mpointE = cEuler(states, y, a, mpoint, A2m, R, beta, gamma, P)
+        if print_output
+            println("M: ", round(mpointE, digits=3))
+        end
+        if abs(mpointE) <= 0.0 + tolerance
+            if print_output
+                println("Converged to interior solution at midpoint.")
             end
             return mpoint
-        else
-            epointE = cEuler(states, y, a, epoint, a2, R, beta, gamma, P)
-            if epointE > 0.0 + tolerance
-                return bisection_inner(
-                    states,
-                    P,
-                    mpoint,
-                    epoint,
-                    a,
-                    y,
-                    a2,
-                    nu,
-                    R,
-                    beta,
-                    gamma;
-                    tolerance=tolerance,
-                    print_output=print_output
-                )
-            elseif abs(epointE) <= 0.0 + tolerance
-                if print_output
-                    println("Converged to interior solution.")
-                end
-                return epoint
-            else
-                if print_output
-                    println("Failed to converge, consider increasing grid_max.")
-                end
-                return missing
+        elseif mpointE > 0.0 + tolerance
+            if print_output
+                println("Setting bounds to (spoint, mpoint).")
             end
+            return bisection(states, P, grid, grid_length, spoint, mpoint, a, y, A2, R, beta, gamma; tolerance=tolerance, init=false, print_output=print_output)
+        else
+            if print_output
+                println("Setting bounds to (mpoint, epoint).")
+            end
+            return bisection(states, P, grid, grid_length, mpoint, epoint, a, y, A2, R, beta, gamma; tolerance=tolerance, init=false, print_output=print_output)
         end
     end
 end
 
 function pfi_interpolation(
-    markovchain,
+    states,
+    P,
     grid_length,
     grid_max,
     phi,
@@ -488,12 +403,11 @@ function pfi_interpolation(
     R,
     beta,
     gamma;
+    max_iterations=1000,
     tolerance=1e-4,
     print_output=false
     )
-    
-    states = exp.(markovchain.states)
-    P = markovchain.theta
+
     N = length(states)
 
     A = Array{Union{Float64, Missing}}(undef, grid_length)
@@ -518,103 +432,29 @@ function pfi_interpolation(
     end
 
     Ay2 = Array{Union{Float64, Missing}}(undef, (grid_length, N))
-    for i = 1:grid_length
-        for j = 1:N
-            Ay2[i, j] = A1[i]
-        end
-    end
 
-    for i = 1:grid_length
-        for j = 1:N
-            if print_output
-                println("i: ", i, ", j: ", j)
+    for iteration = 1:max_iterations
+        if print_output
+            println("Iteration: ", iteration)
+        end
+        for i = 1:grid_length
+            if iteration == 1
+                Ay2 .= A[i]
             end
-            Ay1[i, j] = bisection_outer(
-                states,
-                P,
-                phi,
-                grid_max,
-                A[i],
-                states[j],
-                Ay2[i, j],
-                nu,
-                R,
-                beta,
-                gamma;
-                tolerance=tolerance,
-                print_output=print_output
-            )
+            for j = 1:N
+                Ay1[i, j] = bisection(states, P, A, grid_length, phi, grid_max, A[i], states[j], Ay2, R, beta, gamma; tolerance=tolerance, print_output=print_output)
+            end
+        end
+        error = maximum(abs.(skipmissing(Ay1 .- Ay2)))
+        if error <= tolerance
+            break
+        else
+            Ay2 = Ay1
+            break
         end
     end
 
     return A, Ay1
-end
-
-#==========================================================================================
-# Problem 2 (Discretization)
-==========================================================================================#
-# Consumption-savings parameters
-ϕ = 0.0
-γ = 2.0
-β = 0.95
-r = 0.02
-R = 1 + r
-
-# Income process parameters
-vₑ = 0.06
-σₑ = sqrt(vₑ)
-μₑ = 0
-ρ = 0.90
-w̄ = -vₑ / (2*(1 + ρ))
-v = σₑ / (1 - ρ^2)
-σ = sqrt(v)
-μ = w̄ / (1 - ρ)
-
-# Grid parameters
-M = 100
-ν = 5
-a_M = 20
-
-# Markov chain parameters
-N = 5
-
-markov = rouwenhorst(w̄, vₑ, 5, ρ)
-
-A_policy, Ay1_policy = pfi_discretization(
-    markov,
-    M,
-    a_M,
-    ϕ,
-    ν,
-    R,
-    β,
-    γ;
-    print_output=false
-)
-
-for i = 1:M
-    println(round.(Ay1_policy[i, :], digits=3))
-end
-
-periods = 100
-Y = exp.(simulate!(markov, periods, 1000, 0))
-states = exp.(markov.states)
-A = Array{Union{Float64, Missing}}(undef, periods)
-A[1] = A_policy[rand(1:M)]
-A1 = Array{Union{Float64, Missing}}(undef, periods)
-j = findfirst(state -> state == Y[1], states)
-i = findfirst(asset -> asset == A[1], A_policy)
-A1[1] = Ay1_policy[i, j]
-for t = 2:periods
-    global i, j
-    A[t] = A1[t - 1]
-    j = findfirst(state -> state == Y[t], states)
-    i = findfirst(asset -> asset == A[t], A_policy)
-    A1[t] = Ay1_policy[i, j]
-end
-
-for t = 1:periods
-    println(round(A1[t], digits=3))
 end
 
 #==========================================================================================
@@ -647,8 +487,12 @@ N = 5
 
 markov = rouwenhorst(w̄, vₑ, 5, ρ)
 
+states = exp.(markov.states)
+P = markov.theta
+
 A_policy, Ay1_policy = pfi_interpolation(
-    markov,
+    states,
+    P,
     M,
     a_M,
     ϕ,
@@ -656,6 +500,7 @@ A_policy, Ay1_policy = pfi_interpolation(
     R,
     β,
     γ;
+    max_iterations=1000,
     tolerance=1e-4,
     print_output=false
 )
@@ -663,3 +508,34 @@ A_policy, Ay1_policy = pfi_interpolation(
 for i = 1:M
     println(round.(Ay1_policy[i, :], digits=3))
 end
+
+
+
+
+#=
+ys = exp.(markov.states)
+theta = markov.theta
+amax = 30
+y = ys[3]
+inv_step = 5
+a = 20
+a2 = 20.2
+A2 = [a2; a2; a2; a2; a2]
+index = Array{Float64}(undef, (amax+1) * inv_step)
+Euler = Array{Float64}(undef, (amax+1) * inv_step)
+idx = 1
+for i = 0:1/inv_step:amax
+    a1 = i
+    index[idx] = i
+    Euler[idx] = cEuler(ys, y, a, a1, A2, R, β, γ, theta)
+    global idx += 1
+end
+
+plt.plot(index, Euler)
+
+for i = 2:idx
+    if Euler[i-1] < 0 && Euler[i] >= 0
+        println(index[i])
+    end
+end
+=#
