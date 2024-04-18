@@ -452,6 +452,11 @@ function pfi_interpolation(
             Ay2 = Ay1
             break
         end
+        if iteration == max_iterations
+            if print_output
+                println("Interpolation failed to converge.")
+            end
+        end
     end
 
     return A, Ay1
@@ -479,7 +484,7 @@ v = σₑ / (1 - ρ^2)
 
 # Grid parameters
 M = 100
-ν = 5
+ν = 3
 a_M = 20
 
 # Markov chain parameters
@@ -513,7 +518,7 @@ end
 # Simulation
 ==========================================================================================#
 periods = 100
-Y = exp.(simulate!(markov, periods, 1000, 0))
+Y = exp.(simulate!(markov, periods, 1000, 0; random_state=42))
 A = Array{Union{Float64, Missing}}(undef, periods)
 #A[1] = A_policy[rand(1:M)]
 A[1] = 0.0
@@ -522,14 +527,14 @@ A1[1] = Ay1_policy[findfirst(asset -> asset == A[1], A_policy), findfirst(state 
 for t = 2:periods
     A[t] = A1[t - 1]
     j = findfirst(state -> state == Y[t], states)
-    for k = 1:length(Ay1_policy[:, j])-1
-        if Ay1_policy[k, j] == A[t]
+    for k = 1:length(A_policy)-1
+        if A_policy[k] == A[t]
             A1[t] = Ay1_policy[k, j]
             break
-        elseif Ay1_policy[k+1, j] == A[t]
+        elseif A_policy[k+1] == A[t]
             A1[t] = Ay1_policy[k+1, j]
             break
-        elseif Ay1_policy[k, j] < A[t] && A[t] < Ay1_policy[k+1, j]
+        elseif A_policy[k] < A[t] && A[t] < A_policy[k+1]
             A1[t] = Ay1_policy[k, j] + (A[t] - A_policy[k]) *
                 (Ay1_policy[k+1, j] - Ay1_policy[k, j]) /
                 (A_policy[k+1] - A_policy[k])

@@ -231,11 +231,11 @@ function Eu_c_y(states, y, a1, A2_y, R, gamma, P)
 
     i_y = findfirst(state -> state == y, states)
     P_y = P[i_y, :]
-    u_c_y = Array{Float64}(undef, N)
-    for i = 1:N
-        u_c_y[i] = u_c(R*a1 - A2_y[i] + states[i], gamma)
+    global u_c_y = 0.0
+    for j = 1:N
+        u_c_y += P_y[j] * u_c(R*a1 - A2_y[j] + states[j], gamma)
     end
-    return P_y' * u_c_y
+    return u_c_y
 end
 
 function cEuler(states, y, a, a1, A2_y, R, beta, gamma, P)
@@ -252,6 +252,7 @@ function pfi_discretization(
     R,
     beta,
     gamma;
+    max_iterations=1000,
     print_output=false
     )
 
@@ -287,54 +288,66 @@ function pfi_discretization(
         end
     end
 
-    for i = 1:grid_length
-        for j = 1:N
-            ijk = cEuler(
-                states,
-                states[j],
-                A[i],
-                A1[1],
-                Ay2[1, :],
-                R,
-                beta,
-                gamma,
-                P
-            )
-            if print_output
-                println(i, ", ", j, ": ", ijk)
-            end
-            if ijk >= 0
-                Ay1[i, j] = A1[1]
-            else
-                for k = 2:grid_length
-                    if print_output
-                        println("After (", k, "): ", ijk)
-                    end
-                    ijk1 = cEuler(
-                        states,
-                        states[j],
-                        A[i],
-                        A1[k],
-                        Ay2[k, :],
-                        R,
-                        beta,
-                        gamma,
-                        P
-                    )
-                    if ijk1 >= 0
-                        if abs(ijk1) <= abs(ijk)
-                            Ay1[i, j] = A1[k]
-                        else
-                            Ay1[i, j] = A1[k-1]
-                        end
-                        break
-                    else
-                        ijk = ijk1
+    for iteration = 1:max_iterations
+        for i = 1:grid_length
+            for j = 1:N
+                ijk = cEuler(
+                    states,
+                    states[j],
+                    A[i],
+                    A1[1],
+                    Ay2[1, :],
+                    R,
+                    beta,
+                    gamma,
+                    P
+                )
+                if print_output
+                    println(i, ", ", j, ": ", ijk)
+                end
+                if ijk >= 0
+                    Ay1[i, j] = A1[1]
+                else
+                    for k = 2:grid_length
                         if print_output
-                            println("Before (", k, "): ", ijk)
+                            println("After (", k, "): ", ijk)
+                        end
+                        ijk1 = cEuler(
+                            states,
+                            states[j],
+                            A[i],
+                            A1[k],
+                            Ay2[k, :],
+                            R,
+                            beta,
+                            gamma,
+                            P
+                        )
+                        if ijk1 >= 0
+                            if abs(ijk1) <= abs(ijk)
+                                Ay1[i, j] = A1[k]
+                            else
+                                Ay1[i, j] = A1[k-1]
+                            end
+                            break
+                        else
+                            ijk = ijk1
+                            if print_output
+                                println("Before (", k, "): ", ijk)
+                            end
                         end
                     end
                 end
+            end
+        end
+        if maximum(skipmissing(Ay1 .== Ay2))
+            break
+        else
+            Ay2[:, :] = Ay1[:, :]
+        end
+        if iteration == max_iterations
+            if print_output
+                println("Discretization failed to converge.")
             end
         end
     end
@@ -385,6 +398,7 @@ A_policy, Ay1_policy = pfi_discretization(
     R,
     β,
     γ;
+    max_iterations=1000,
     print_output=false
 )
 
@@ -396,7 +410,7 @@ end
 # Simulation
 ==========================================================================================#
 periods = 100
-Y = exp.(simulate!(markov, periods, 1000, 0))
+Y = exp.(simulate!(markov, periods, 1000, 0; random_state=42))
 A = Array{Union{Float64, Missing}}(undef, periods)
 #A[1] = A_policy[rand(1:M)]
 A[1] = 0.0
