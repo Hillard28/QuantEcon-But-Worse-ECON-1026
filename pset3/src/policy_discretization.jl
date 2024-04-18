@@ -243,7 +243,8 @@ function cEuler(states, y, a, a1, A2_y, R, beta, gamma, P)
 end
 
 function pfi_discretization(
-    markovchain,
+    states,
+    P,
     grid_length,
     grid_max,
     phi,
@@ -254,8 +255,6 @@ function pfi_discretization(
     print_output=false
     )
 
-    states = exp.(markovchain.states)
-    P = markovchain.theta
     N = length(states)
 
     A = Array{Union{Float64, Missing}}(undef, grid_length)
@@ -373,8 +372,12 @@ N = 5
 
 markov = rouwenhorst(w̄, vₑ, 5, ρ)
 
+states = exp.(markov.states)
+P = markov.theta
+
 A_policy, Ay1_policy = pfi_discretization(
-    markov,
+    states,
+    P,
     M,
     a_M,
     ϕ,
@@ -389,23 +392,45 @@ for i = 1:M
     println(round.(Ay1_policy[i, :], digits=3))
 end
 
+#==========================================================================================
+# Simulation
+==========================================================================================#
 periods = 100
 Y = exp.(simulate!(markov, periods, 1000, 0))
-states = exp.(markov.states)
 A = Array{Union{Float64, Missing}}(undef, periods)
-A[1] = A_policy[rand(1:M)]
+#A[1] = A_policy[rand(1:M)]
+A[1] = 0.0
 A1 = Array{Union{Float64, Missing}}(undef, periods)
-j = findfirst(state -> state == Y[1], states)
-i = findfirst(asset -> asset == A[1], A_policy)
-A1[1] = Ay1_policy[i, j]
+A1[1] = Ay1_policy[findfirst(asset -> asset == A[1], A_policy), findfirst(state -> state == Y[1], states)]
 for t = 2:periods
-    global i, j
     A[t] = A1[t - 1]
     j = findfirst(state -> state == Y[t], states)
     i = findfirst(asset -> asset == A[t], A_policy)
     A1[t] = Ay1_policy[i, j]
 end
 
+C = Array{Union{Float64, Missing}}(undef, periods)
 for t = 1:periods
-    println(round(A1[t], digits=3))
+    C[t] = Y[t] + R*A[t] - A1[t]
 end
+
+for t = 1:periods
+    println(
+        "Y[", t, "]: ", round(Y[t], digits=3),
+        "\tA[", t, "]: ", round(A[t], digits=3),
+        "\tA'[", t, "]: ", round(A1[t], digits=3),
+        "\tC[", t, "]: ", round(C[t], digits=3),
+    )
+end
+
+sim_plot = plt.plot(Y, label="Endowment")
+sim_plot = plt.plot!(A1, label="Savings")
+sim_plot = plt.plot!(C, label="Consumption")
+plt.display(sim_plot)
+
+Cshare_income = C ./ (R.*A .+ Y)
+Cshare_endowment = C ./ Y
+
+csim_plot = plt.plot(Cshare_income, label="Y + R*A")
+csim_plot = plt.plot!(Cshare_endowment, label="Y")
+plt.display(csim_plot)

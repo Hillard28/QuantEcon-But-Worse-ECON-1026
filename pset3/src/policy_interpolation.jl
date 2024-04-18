@@ -515,13 +515,11 @@ end
 periods = 100
 Y = exp.(simulate!(markov, periods, 1000, 0))
 A = Array{Union{Float64, Missing}}(undef, periods)
-A[1] = A_policy[rand(1:M)]
+#A[1] = A_policy[rand(1:M)]
+A[1] = 0.0
 A1 = Array{Union{Float64, Missing}}(undef, periods)
-j = findfirst(state -> state == Y[1], states)
-i = findfirst(asset -> asset == A[1], A_policy)
-A1[1] = Ay1_policy[i, j]
+A1[1] = Ay1_policy[findfirst(asset -> asset == A[1], A_policy), findfirst(state -> state == Y[1], states)]
 for t = 2:periods
-    global j
     A[t] = A1[t - 1]
     j = findfirst(state -> state == Y[t], states)
     for k = 1:length(Ay1_policy[:, j])-1
