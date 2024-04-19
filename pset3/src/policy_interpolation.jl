@@ -239,6 +239,10 @@ function cEuler(states, y, a, a1, A2_y, R, beta, gamma, P)
     return u_c(R*a + y - a1, gamma) - beta * R * Eu_c_y(states, y, a1, A2_y, R, gamma, P)
 end
 
+function grid_distance(min, max, minval, maxval, i, shape=1)
+    minval + (maxval - minval)*((i - min) / (max - min))^shape
+end
+
 function bisection(
     states,
     P,
@@ -252,7 +256,8 @@ function bisection(
     A2,
     R,
     beta,
-    gamma;
+    gamma,
+    nu;
     tolerance=1e-4,
     print_output=false
     )
@@ -308,7 +313,7 @@ function bisection(
             if print_output
                 println("Setting bounds to (spoint, mpoint).")
             end
-            return bisection(states, P, grid, grid_length, spoint, (spoint + mpoint)/2, mpoint, a, y, A2, R, beta, gamma; tolerance=tolerance, print_output=print_output)
+            return bisection(states, P, grid, grid_length, spoint, (spoint + mpoint)/2, mpoint, a, y, A2, R, beta, gamma, nu; tolerance=tolerance, print_output=print_output)
         else
             if grid[grid_length] == epoint
                 A2m[:] = A2[grid_length, :]
@@ -342,7 +347,7 @@ function bisection(
                 if print_output
                     println("Setting bounds to (mpoint, epoint).")
                 end
-                return bisection(states, P, grid, grid_length, mpoint, (mpoint + epoint)/2, epoint, a, y, A2, R, beta, gamma; tolerance=tolerance, print_output=print_output)
+                return bisection(states, P, grid, grid_length, mpoint, (mpoint + epoint)/2, epoint, a, y, A2, R, beta, gamma, nu; tolerance=tolerance, print_output=print_output)
             end
         end
     end
@@ -369,8 +374,7 @@ function pfi_interpolation(
     A[1] = phi
     A[grid_length] = grid_max
     for i = 2:grid_length-1
-        A[i] = A[1] +
-            (A[grid_length] - A[1])*((i - 1) / (grid_length - 1))^nu
+        A[i] = grid_distance(1, grid_length, phi, grid_max, i, nu)
     end
 
     Ay1 = Array{Union{Float64, Missing}}(undef, (grid_length, N))
@@ -385,27 +389,38 @@ function pfi_interpolation(
             println("Iteration: ", iteration)
         end
         for i = 1:grid_length
+            if iteration == 1
+                mpoint = A[i]
+            else
+                mpoint = grid_distance(1, grid_length, phi, grid_max, grid_length/2, nu)
+            end
             for j = 1:N
-                value = bisection(states, P, A, grid_length, phi, A[i], grid_max, A[i], states[j], Ay2, R, beta, gamma; tolerance=tolerance, print_output=print_output)
+                value = bisection(states, P, A, grid_length, phi, mpoint, grid_max, A[i], states[j], Ay2, R, beta, gamma, nu; tolerance=tolerance, print_output=print_output)
                 if typeof(value) != Missing
                     Ay1[i, j] = value
-                else
-                    Ay1[i, j] = A[i]
                 end
             end
         end
         error = maximum(abs.(skipmissing(Ay1 .- Ay2)))
         if error <= tolerance
-            println("\nError (", round(error, digits=4), ") within tolerance in ", iteration, " iterations, exiting.\n")
+            if print_output
+                println("\nError (", round(error, digits=4), ") within tolerance in ", iteration, " iterations, exiting.\n")
+            end
             break
         else
-            Ay2[:, :] = Ay1[:, :]
-            println("\nError (", round(error, digits=4), ") outside of tolerance, updating Ay2.\n")
+            for i = 1:grid_length
+                for j = 1:N
+                    if abs(Ay1[i, j] - Ay2[i, j]) > tolerance
+                        Ay2[i, j] = Ay1[i, j]
+                    end
+                end
+            end
+            if print_output
+                println("\nError (", round(error, digits=4), ") outside of tolerance, updating Ay2.\n")
+            end
         end
         if iteration == max_iterations
-            if print_output
-                println("Interpolation failed to converge.")
-            end
+            println("Interpolation failed to converge.")
         end
     end
 
@@ -463,7 +478,7 @@ A_policy, Ay1_policy = pfi_interpolation(
 for i = 1:M
     println(round(A_policy[i], digits=1), ": ", round.(Ay1_policy[i, :], digits=2))
 end
-#=
+
 #==========================================================================================
 # Simulation
 ==========================================================================================#
@@ -518,4 +533,3 @@ Cshare_endowment = C ./ Y
 csim_plot = plt.plot(Cshare_income, label="Y + R*A")
 csim_plot = plt.plot!(Cshare_endowment, label="Y")
 plt.display(csim_plot)
-=#
