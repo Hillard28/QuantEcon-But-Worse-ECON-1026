@@ -96,11 +96,10 @@ function tauchen(
     rho;
     print_output=false
     )
-    σ = sqrt(variance)
-    v = variance
-    μ = mean
+    
+    std = sqrt(variance)
     states = Array{Float64}(undef, N)
-    states[N] = m*sqrt(v / (1 - rho^2))
+    states[N] = m*sqrt(variance / (1 - rho^2))
     states[1] = -states[N]
     if print_output
         println("States:")
@@ -125,12 +124,12 @@ function tauchen(
     for i = 1:N
         for j = 1:N
             if j == 1
-                Θ[i, j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/σ)
+                Θ[i, j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/std)
             elseif j == N
-                Θ[i, j] = 1 - dist.cdf(D, (states[j] - d/2 - rho*states[i])/σ)
+                Θ[i, j] = 1 - dist.cdf(D, (states[j] - d/2 - rho*states[i])/std)
             else
-                Θ[i, j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/σ) -
-                    dist.cdf(D, (states[j] - d/2 - rho*states[i])/σ)
+                Θ[i, j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/std) -
+                    dist.cdf(D, (states[j] - d/2 - rho*states[i])/std)
             end
         end
     end
@@ -142,7 +141,7 @@ function tauchen(
         end
     end
     
-    states .+= μ / (1 - rho)
+    states .+= mean / (1 - rho)
 
     return MarkovChain(Θ, states, missing, missing, missing)
 end
@@ -154,10 +153,8 @@ function rouwenhorst(
     rho;
     print_output=false
     )
-    v = variance
-    μ = mean
 
-    ψ = sqrt(v / (1 - rho^2)) * sqrt(N - 1)
+    ψ = sqrt(variance / (1 - rho^2)) * sqrt(N - 1)
 
     states = Array{Float64}(undef, N)
     states[N] = ψ
@@ -210,7 +207,7 @@ function rouwenhorst(
         end
     end
 
-    states .+= μ / (1 - rho)
+    states .+= mean / (1 - rho)
     
     return MarkovChain(Θ, states, missing, missing, missing)
 end
@@ -219,7 +216,7 @@ end
 # Utility and asset grid functions
 ==========================================================================================#
 function u(c, gamma)
-    return c^(1 - gamma) / (1 - gamma)
+    return (c^(1 - gamma)) / (1 - gamma)
 end
 
 function u_c(c, gamma)
@@ -248,6 +245,7 @@ function bisection(
     grid,
     grid_length,
     spoint,
+    mpoint,
     epoint,
     a,
     y,
@@ -256,125 +254,52 @@ function bisection(
     beta,
     gamma;
     tolerance=1e-4,
-    init=true,
     print_output=false
     )
 
-    if init
-        if print_output
-            println("a: ", round(a, digits=3))
-        end
-        if grid[1] == spoint
-            global A2m = A2[1, :]
-        else
-            for i = 1:grid_length - 1
-                if grid[i+1] == spoint
-                    global A2m = A2[i+1, :]
-                    break
-                elseif grid[i+1] > spoint
-                    global A2m = A2[i, :] .+ (spoint - grid[i]) .* ((A2[i+1, :] .- A2[i, :]) ./ (grid[i+1] - grid[i]))
-                    break
-                end
-            end
-        end
-        if print_output
-            println("A2_sy: ", round.(A2m, digits=3))
-        end
-        spointE = cEuler(states, y, a, spoint, A2m, R, beta, gamma, P)
-        if print_output
-            println("S: ", round(spointE, digits=3))
-        end
-        if spointE > 0.0 - tolerance
-            if print_output
-                println("Converged to interior solution at startpoint.")
-            end
-            return spoint
-        else
-            mpoint = (spoint + epoint) / 2
-            for i = 1:grid_length - 1
-                if grid[i+1] == mpoint
-                    global A2m = A2[i+1, :]
-                    break
-                elseif grid[i+1] > mpoint
-                    global A2m = A2[i, :] .+ (mpoint - grid[i]) .* ((A2[i+1, :] .- A2[i, :]) ./ (grid[i+1] - grid[i]))
-                    break
-                end
-            end
-            if print_output
-                println("A2_my: ", round.(A2m, digits=3))
-            end
-            mpointE = cEuler(states, y, a, mpoint, A2m, R, beta, gamma, P)
-            if print_output
-                println("M: ", round(mpointE, digits=3))
-            end
-            if abs(mpointE) <= 0.0 + tolerance
-                if print_output
-                    println("Converged to interior solution at midpoint.")
-                end
-                return mpoint
-            elseif mpointE > 0.0 + tolerance
-                if print_output
-                    println("Setting bounds to (spoint, mpoint).")
-                end
-                return bisection(states, P, grid, grid_length, spoint, mpoint, a, y, A2, R, beta, gamma; tolerance=tolerance, init=false, print_output=print_output)
-            else
-                if grid[grid_length] == epoint
-                    global A2m = A2[grid_length, :]
-                else
-                    for i = grid_length:-1:2
-                        if grid[i-1] == epoint
-                            global A2m = A2[i-1, :]
-                            break
-                        elseif grid[i-1] < epoint
-                            global A2m = A2[i-1, :] .+ (epoint - grid[i-1]) .* ((A2[i, :] .- A2[i-1, :]) ./ (grid[i] - grid[i-1]))
-                            break
-                        end
-                    end
-                end
-                if print_output
-                    println("A2_ey: ", round.(A2m, digits=3))
-                end
-                epointE = cEuler(states, y, a, epoint, A2m, R, beta, gamma, P)
-                if print_output
-                    println("E: ", round(epointE, digits=3))
-                end
-                if epointE < 0.0 - tolerance
-                    if print_output
-                        println("Expand grid length or adjust curvature.")
-                    end
-                    return epoint
-                elseif abs(epointE) <= 0.0 + tolerance
-                    if print_output
-                        println("Converged to interior solution at endpoint.")
-                    end
-                    return epoint
-                else
-                    if print_output
-                        println("Setting bounds to (mpoint, epoint).")
-                    end
-                    return bisection(states, P, grid, grid_length, mpoint, epoint, a, y, A2, R, beta, gamma; tolerance=tolerance, init=false, print_output=print_output)
-                end
+    if print_output
+        println("a: ", round(a, digits=3))
+    end
+    A2m = Array{Union{Float64, Missing}}(undef, length(states))
+    if grid[1] != spoint
+        for i = 1:grid_length - 1
+            if grid[i+1] == spoint
+                A2m[:] = A2[i+1, :]
+                break
+            elseif grid[i+1] > spoint
+                A2m[:] = A2[i, :] .+ (spoint - grid[i]) .* ((A2[i+1, :] .- A2[i, :]) ./ (grid[i+1] - grid[i]))
+                break
             end
         end
     else
-        mpoint = (spoint + epoint) / 2
+        A2m[:] = A2[1, :]
+    end
+    
+    spointE = cEuler(states, y, a, spoint, A2m, R, beta, gamma, P)
+    if print_output
+        println("S (", round(spoint, digits=2), ") Ay2: ", round.(A2m, digits=2), ", Euler: ", round(spointE, digits=3))
+    end
+    if spointE > 0.0
+        if print_output
+            println("Converged to interior solution at startpoint.")
+        end
+        return spoint
+    else
         for i = 1:grid_length - 1
             if grid[i+1] == mpoint
-                global A2m = A2[i+1, :]
+                A2m[:] = A2[i+1, :]
                 break
             elseif grid[i+1] > mpoint
-                global A2m = A2[i, :] .+ (mpoint - grid[i]) .* ((A2[i+1, :] .- A2[i, :]) ./ (grid[i+1] - grid[i]))
+                A2m[:] = A2[i, :] .+ (mpoint - grid[i]) .* ((A2[i+1, :] .- A2[i, :]) ./ (grid[i+1] - grid[i]))
                 break
             end
         end
-        if print_output
-            println("A2_my: ", round.(A2m, digits=3))
-        end
+
         mpointE = cEuler(states, y, a, mpoint, A2m, R, beta, gamma, P)
         if print_output
-            println("M: ", round(mpointE, digits=3))
+            println("M (", round(mpoint, digits=2), ") Ay2: ", round.(A2m, digits=2), ", Euler: ", round(mpointE, digits=3))
         end
-        if abs(mpointE) <= 0.0 + tolerance
+        if 0.0 <= mpointE && mpointE <= 0.0 + tolerance
             if print_output
                 println("Converged to interior solution at midpoint.")
             end
@@ -383,12 +308,42 @@ function bisection(
             if print_output
                 println("Setting bounds to (spoint, mpoint).")
             end
-            return bisection(states, P, grid, grid_length, spoint, mpoint, a, y, A2, R, beta, gamma; tolerance=tolerance, init=false, print_output=print_output)
+            return bisection(states, P, grid, grid_length, spoint, (spoint + mpoint)/2, mpoint, a, y, A2, R, beta, gamma; tolerance=tolerance, print_output=print_output)
         else
-            if print_output
-                println("Setting bounds to (mpoint, epoint).")
+            if grid[grid_length] == epoint
+                A2m[:] = A2[grid_length, :]
+            else
+                for i = grid_length:-1:2
+                    if grid[i-1] == epoint
+                        A2m[:] = A2[i-1, :]
+                        break
+                    elseif grid[i-1] < epoint
+                        A2m[:] = A2[i-1, :] .+ (epoint - grid[i-1]) .* ((A2[i, :] .- A2[i-1, :]) ./ (grid[i] - grid[i-1]))
+                        break
+                    end
+                end
             end
-            return bisection(states, P, grid, grid_length, mpoint, epoint, a, y, A2, R, beta, gamma; tolerance=tolerance, init=false, print_output=print_output)
+
+            epointE = cEuler(states, y, a, epoint, A2m, R, beta, gamma, P)
+            if print_output
+                println("E (", round(epoint, digits=2), ") Ay2: ", round.(A2m, digits=2), ", Euler: ", round(epointE, digits=3))
+            end
+            if epointE < 0.0
+                if print_output
+                    println("Expand grid length or adjust curvature.")
+                end
+                return missing
+            elseif 0.0 <= epointE && epointE <= 0.0 + tolerance
+                if print_output
+                    println("Converged to interior solution at endpoint.")
+                end
+                return epoint
+            else
+                if print_output
+                    println("Setting bounds to (mpoint, epoint).")
+                end
+                return bisection(states, P, grid, grid_length, mpoint, (mpoint + epoint)/2, epoint, a, y, A2, R, beta, gamma; tolerance=tolerance, print_output=print_output)
+            end
         end
     end
 end
@@ -414,43 +369,38 @@ function pfi_interpolation(
     A[1] = phi
     A[grid_length] = grid_max
     for i = 2:grid_length-1
-        A[i] = A[1] + (A[grid_length] - A[1])*((i - 1) / (grid_length - 1))^nu
-    end
-
-    A1 = Array{Union{Float64, Missing}}(undef, grid_length)
-    A1[1] = phi
-    A1[grid_length] = grid_max
-    for i = 2:grid_length-1
-        A1[i] = A1[1] + (A1[grid_length] - A1[1])*((i - 1) / (grid_length - 1))^nu
+        A[i] = A[1] +
+            (A[grid_length] - A[1])*((i - 1) / (grid_length - 1))^nu
     end
 
     Ay1 = Array{Union{Float64, Missing}}(undef, (grid_length, N))
-    for i = 1:grid_length
-        for j = 1:N
-            Ay1[i, j] = missing
-        end
-    end
-
     Ay2 = Array{Union{Float64, Missing}}(undef, (grid_length, N))
+    for j = 1:N
+        Ay1[:, j] = A
+        Ay2[:, j] = A
+    end
 
     for iteration = 1:max_iterations
         if print_output
             println("Iteration: ", iteration)
         end
         for i = 1:grid_length
-            if iteration == 1
-                Ay2 .= A[i]
-            end
             for j = 1:N
-                Ay1[i, j] = bisection(states, P, A, grid_length, phi, grid_max, A[i], states[j], Ay2, R, beta, gamma; tolerance=tolerance, print_output=print_output)
+                value = bisection(states, P, A, grid_length, phi, A[i], grid_max, A[i], states[j], Ay2, R, beta, gamma; tolerance=tolerance, print_output=print_output)
+                if typeof(value) != Missing
+                    Ay1[i, j] = value
+                else
+                    Ay1[i, j] = A[i]
+                end
             end
         end
         error = maximum(abs.(skipmissing(Ay1 .- Ay2)))
         if error <= tolerance
+            println("\nError (", round(error, digits=4), ") within tolerance in ", iteration, " iterations, exiting.\n")
             break
         else
-            Ay2 = Ay1
-            break
+            Ay2[:, :] = Ay1[:, :]
+            println("\nError (", round(error, digits=4), ") outside of tolerance, updating Ay2.\n")
         end
         if iteration == max_iterations
             if print_output
@@ -467,7 +417,7 @@ end
 ==========================================================================================#
 # Consumption-savings parameters
 ϕ = 0.0
-γ = 2.0
+γ = 2
 β = 0.95
 r = 0.02
 R = 1 + r
@@ -505,15 +455,15 @@ A_policy, Ay1_policy = pfi_interpolation(
     R,
     β,
     γ;
-    max_iterations=1000,
+    max_iterations=100,
     tolerance=1e-4,
     print_output=false
 )
 
 for i = 1:M
-    println(round.(Ay1_policy[i, :], digits=3))
+    println(round(A_policy[i], digits=1), ": ", round.(Ay1_policy[i, :], digits=2))
 end
-
+#=
 #==========================================================================================
 # Simulation
 ==========================================================================================#
@@ -568,3 +518,4 @@ Cshare_endowment = C ./ Y
 csim_plot = plt.plot(Cshare_income, label="Y + R*A")
 csim_plot = plt.plot!(Cshare_endowment, label="Y")
 plt.display(csim_plot)
+=#

@@ -96,11 +96,10 @@ function tauchen(
     rho;
     print_output=false
     )
-    σ = sqrt(variance)
-    v = variance
-    μ = mean
+    
+    std = sqrt(variance)
     states = Array{Float64}(undef, N)
-    states[N] = m*sqrt(v / (1 - rho^2))
+    states[N] = m*sqrt(variance / (1 - rho^2))
     states[1] = -states[N]
     if print_output
         println("States:")
@@ -125,12 +124,12 @@ function tauchen(
     for i = 1:N
         for j = 1:N
             if j == 1
-                Θ[i, j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/σ)
+                Θ[i, j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/std)
             elseif j == N
-                Θ[i, j] = 1 - dist.cdf(D, (states[j] - d/2 - rho*states[i])/σ)
+                Θ[i, j] = 1 - dist.cdf(D, (states[j] - d/2 - rho*states[i])/std)
             else
-                Θ[i, j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/σ) -
-                    dist.cdf(D, (states[j] - d/2 - rho*states[i])/σ)
+                Θ[i, j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/std) -
+                    dist.cdf(D, (states[j] - d/2 - rho*states[i])/std)
             end
         end
     end
@@ -142,7 +141,7 @@ function tauchen(
         end
     end
     
-    states .+= μ / (1 - rho)
+    states .+= mean / (1 - rho)
 
     return MarkovChain(Θ, states, missing, missing, missing)
 end
@@ -154,10 +153,8 @@ function rouwenhorst(
     rho;
     print_output=false
     )
-    v = variance
-    μ = mean
 
-    ψ = sqrt(v / (1 - rho^2)) * sqrt(N - 1)
+    ψ = sqrt(variance / (1 - rho^2)) * sqrt(N - 1)
 
     states = Array{Float64}(undef, N)
     states[N] = ψ
@@ -210,7 +207,7 @@ function rouwenhorst(
         end
     end
 
-    states .+= μ / (1 - rho)
+    states .+= mean / (1 - rho)
     
     return MarkovChain(Θ, states, missing, missing, missing)
 end
@@ -266,25 +263,17 @@ function pfi_discretization(
             (A[grid_length] - A[1])*((i - 1) / (grid_length - 1))^nu
     end
 
-    A1 = Array{Union{Float64, Missing}}(undef, grid_length)
-    A1[1] = phi
-    A1[grid_length] = grid_max
-    for i = 2:grid_length-1
-        A1[i] = A1[1] +
-            (A1[grid_length] - A1[1])*((i - 1) / (grid_length - 1))^nu
-    end
-
     Ay1 = Array{Union{Float64, Missing}}(undef, (grid_length, N))
     for i = 1:grid_length
         for j = 1:N
-            Ay1[i, j] = missing
+            Ay1[i, j] = A[i]
         end
     end
 
     Ay2 = Array{Union{Float64, Missing}}(undef, (grid_length, N))
     for i = 1:grid_length
         for j = 1:N
-            Ay2[i, j] = A1[i]
+            Ay2[i, j] = A[i]
         end
     end
 
@@ -295,7 +284,7 @@ function pfi_discretization(
                     states,
                     states[j],
                     A[i],
-                    A1[1],
+                    A[1],
                     Ay2[1, :],
                     R,
                     beta,
@@ -306,7 +295,7 @@ function pfi_discretization(
                     println(i, ", ", j, ": ", ijk)
                 end
                 if ijk >= 0
-                    Ay1[i, j] = A1[1]
+                    Ay1[i, j] = A[1]
                 else
                     for k = 2:grid_length
                         if print_output
@@ -316,7 +305,7 @@ function pfi_discretization(
                             states,
                             states[j],
                             A[i],
-                            A1[k],
+                            A[k],
                             Ay2[k, :],
                             R,
                             beta,
@@ -325,9 +314,9 @@ function pfi_discretization(
                         )
                         if ijk1 >= 0
                             if abs(ijk1) <= abs(ijk)
-                                Ay1[i, j] = A1[k]
+                                Ay1[i, j] = A[k]
                             else
-                                Ay1[i, j] = A1[k-1]
+                                Ay1[i, j] = A[k-1]
                             end
                             break
                         else
@@ -360,7 +349,7 @@ end
 ==========================================================================================#
 # Consumption-savings parameters
 ϕ = 0.0
-γ = 2.0
+γ = 5
 β = 0.95
 r = 0.02
 R = 1 + r
@@ -398,7 +387,7 @@ A_policy, Ay1_policy = pfi_discretization(
     R,
     β,
     γ;
-    max_iterations=1000,
+    max_iterations=100,
     print_output=false
 )
 

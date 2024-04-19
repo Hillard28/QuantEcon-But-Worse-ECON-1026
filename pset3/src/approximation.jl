@@ -119,11 +119,10 @@ function tauchen(
     rho;
     print_output=false
     )
-    σ = sqrt(variance)
-    v = variance
-    μ = mean
+    
+    std = sqrt(variance)
     states = Array{Float64}(undef, N)
-    states[N] = m*sqrt(v / (1 - rho^2))
+    states[N] = m*sqrt(variance / (1 - rho^2))
     states[1] = -states[N]
     if print_output
         println("States:")
@@ -148,12 +147,12 @@ function tauchen(
     for i = 1:N
         for j = 1:N
             if j == 1
-                Θ[i, j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/σ)
+                Θ[i, j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/std)
             elseif j == N
-                Θ[i, j] = 1 - dist.cdf(D, (states[j] - d/2 - rho*states[i])/σ)
+                Θ[i, j] = 1 - dist.cdf(D, (states[j] - d/2 - rho*states[i])/std)
             else
-                Θ[i, j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/σ) -
-                    dist.cdf(D, (states[j] - d/2 - rho*states[i])/σ)
+                Θ[i, j] = dist.cdf(D, (states[j] + d/2 - rho*states[i])/std) -
+                    dist.cdf(D, (states[j] - d/2 - rho*states[i])/std)
             end
         end
     end
@@ -165,7 +164,7 @@ function tauchen(
         end
     end
     
-    states .+= μ / (1 - rho)
+    states .+= mean / (1 - rho)
 
     return MarkovChain(Θ, states, missing, missing, missing)
 end
@@ -177,10 +176,8 @@ function rouwenhorst(
     rho;
     print_output=false
     )
-    v = variance
-    μ = mean
 
-    ψ = sqrt(v / (1 - rho^2)) * sqrt(N - 1)
+    ψ = sqrt(variance / (1 - rho^2)) * sqrt(N - 1)
 
     states = Array{Float64}(undef, N)
     states[N] = ψ
@@ -233,7 +230,7 @@ function rouwenhorst(
         end
     end
 
-    states .+= μ / (1 - rho)
+    states .+= mean / (1 - rho)
     
     return MarkovChain(Θ, states, missing, missing, missing)
 end
