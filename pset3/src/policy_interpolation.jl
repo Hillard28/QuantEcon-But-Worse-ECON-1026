@@ -215,18 +215,22 @@ end
 #==========================================================================================
 # Utility and asset grid functions
 ==========================================================================================#
+# Computes u(c)
 function u(c, gamma)
     return (c^(1 - gamma)) / (1 - gamma)
 end
 
+# Computes u_c(c)
 function u_c(c, gamma)
     return c^(-gamma)
 end
 
+# Computes u_c(c)^(--1)
 function u_c_inv(c, gamma)
     return c^(-1/gamma)
 end
 
+# Computes the expected value of u_c(c_1)
 function Eu_c(states, y, c, gamma, P)
     N = length(states)
 
@@ -235,22 +239,26 @@ function Eu_c(states, y, c, gamma, P)
     return P_y' * u_c.(c, gamma)
 end
 
+# Computes the Euler equation
 function cEuler(states, y, c, c1, R, beta, gamma, P)
     lhs = u_c(c, gamma)
     rhs = beta * R * Eu_c(states, y, c1, gamma, P)
     return lhs - rhs
 end
 
+# Computes the distance between grid points using a shape parameter
 function grid_distance(min, max, minval, maxval, i, shape=1)
     minval + (maxval - minval)*((i - min) / (max - min))^shape
 end
 
+# Locates grid points surrounding a given value
 function grid_locate(grid, grid_length, point; reverse=false)
     if grid[1] >= point
         return 1
     elseif grid[grid_length] <= point
         return grid_length
     else
+        # Make search quicker if near end of grid
         if reverse
             for i = grid_length:-1:2
                 if grid[i-1] == point
@@ -271,6 +279,7 @@ function grid_locate(grid, grid_length, point; reverse=false)
     end
 end
 
+# Nonlinear solver using the bisection method
 function bisection(
     states,
     P,
@@ -290,23 +299,30 @@ function bisection(
     print_output=false
     )
 
+    # If startpoint and endpoint are equal, assume we've exhausted our search
     if spoint == epoint
         return missing
     else
+        # Locate grid points that surround our midpoint guess
         pos = grid_locate(grid, grid_length, mpoint; reverse=false)
+        # If the above procedure returns a single value, exact match, else use interpolation
         if typeof(pos) == Tuple{Int64, Int64}
             A2m = A2[pos[1], :] .+ (mpoint - grid[pos[1]]) .* ((A2[pos[2], :] .- A2[pos[1], :]) ./ (grid[pos[2]] - grid[pos[1]]))
         else
             A2m = A2[pos, :]
         end
         
+        # Compute c and c' corresponding to guesses for a' and a'' and compute the Euler
         c = R*a + y - mpoint
         c1 = R*mpoint .+ (states .- A2m)
+        # If c is not feasible at midpoint, use midpoint as new endpoint
         if c >= 0.0 && minimum(c1 .>= 0.0)
             mpointE = cEuler(states, y, c, c1, R, beta, gamma, P)
         else
             return bisection(states, P, grid, grid_length, spoint, (spoint + mpoint)/2, mpoint, a, y, A2, R, beta, gamma, nu; tolerance=tolerance, print_output=print_output)
         end
+        # If Euler is greater than zero, optimal value is between startpoint and midpoint
+        # else it is between midpoint and endpoint
         if mpointE > 0.0 + tolerance
             return bisection(states, P, grid, grid_length, spoint, (spoint + mpoint)/2, mpoint, a, y, A2, R, beta, gamma, nu; tolerance=tolerance, print_output=print_output)
         elseif mpointE < 0.0 - tolerance
@@ -335,6 +351,7 @@ function pfi_interpolation(
 
     N = length(states)
 
+    # Create arrays of values for a, a', and a''
     A = Array{Union{Float64, Missing}}(undef, grid_length)
     A[1] = phi
     A[grid_length] = grid_max
@@ -355,11 +372,13 @@ function pfi_interpolation(
         end
         for i = 1:grid_length
             for j = 1:N
+                # Check that a' is not bounded by phi
                 c = R*A[i] + states[j] - Ay1[1, j]
                 c1 = R*Ay1[1, j] .+ (states .- Ay2[1, :])
                 if cEuler(states, states[j], c, c1, R, beta, gamma, P) >= 0.0
                     Ay1[i, j] = Ay1[1, j]
                 else
+                    # If a' is not bounded by phi, search for optimal a' using bisection
                     spoint = phi
                     epoint = grid_max
                     mpoint = (spoint + epoint) / 2
@@ -371,7 +390,9 @@ function pfi_interpolation(
                 end
             end
         end
+        # Compute maximum error of a' - a''
         error = maximum(abs.(skipmissing(Ay1 .- Ay2)))
+        # If error <= tolerance, complete, else set a'' = a' and repeat until max iterations reached
         if error <= tolerance
             if print_output
                 println("\nError (", round(error, digits=4), ") within tolerance in ", iteration, " iterations, exiting.\n")
