@@ -216,27 +216,59 @@ end
 # Utility and asset grid functions
 ==========================================================================================#
 function u(c, gamma)
-    return c^(1 - gamma) / (1 - gamma)
+    return (c^(1 - gamma)) / (1 - gamma)
 end
 
 function u_c(c, gamma)
     return c^(-gamma)
 end
 
-function Eu_c_y(states, y, a1, A2_y, R, gamma, P)
+function u_c_inv(c, gamma)
+    return c^(-1/gamma)
+end
+
+function Eu_c(states, y, c, gamma, P)
     N = length(states)
 
     i_y = findfirst(state -> state == y, states)
     P_y = P[i_y, :]
-    global u_c_y = 0.0
-    for j = 1:N
-        u_c_y += P_y[j] * u_c(R*a1 - A2_y[j] + states[j], gamma)
-    end
-    return u_c_y
+    return P_y' * u_c.(c, gamma)
 end
 
-function cEuler(states, y, a, a1, A2_y, R, beta, gamma, P)
-    return u_c(R*a + y - a1, gamma) - beta * R * Eu_c_y(states, y, a1, A2_y, R, gamma, P)
+function cEuler(states, y, c, c1, R, beta, gamma, P)
+    lhs = u_c(c, gamma)
+    rhs = beta * R * Eu_c(states, y, c1, gamma, P)
+    return lhs - rhs
+end
+
+function grid_distance(min, max, minval, maxval, i, shape=1)
+    minval + (maxval - minval)*((i - min) / (max - min))^shape
+end
+
+function grid_locate(grid, grid_length, point; reverse=false)
+    if grid[1] >= point
+        return 1
+    elseif grid[grid_length] <= point
+        return grid_length
+    else
+        if reverse
+            for i = grid_length:-1:2
+                if grid[i-1] == point
+                    return i-1
+                elseif grid[i-1] < point
+                    return (i-1, i)
+                end
+            end
+        else
+            for i = 1:grid_length - 1
+                if grid[i+1] == point
+                    return i+1
+                elseif grid[i+1] > point
+                    return (i, i+1)
+                end
+            end
+        end
+    end
 end
 
 function pfi_discretization(
@@ -280,12 +312,13 @@ function pfi_discretization(
     for iteration = 1:max_iterations
         for i = 1:grid_length
             for j = 1:N
+                c = R*A[i] + states[j] - A[1]
+                c1 = R*A[1] .+ states .- Ay2[1, :]
                 ijk = cEuler(
                     states,
                     states[j],
-                    A[i],
-                    A[1],
-                    Ay2[1, :],
+                    c,
+                    c1,
                     R,
                     beta,
                     gamma,
@@ -295,12 +328,13 @@ function pfi_discretization(
                     Ay1[i, j] = A[1]
                 else
                     for k = 2:grid_length
+                        c = R*A[i] + states[j] - A[k]
+                        c1 = R*A[k] .+ states .- Ay2[k, :]
                         ijk1 = cEuler(
                             states,
                             states[j],
-                            A[i],
-                            A[k],
-                            Ay2[k, :],
+                            c,
+                            c1,
                             R,
                             beta,
                             gamma,
@@ -359,9 +393,9 @@ v = σₑ / (1 - ρ^2)
 μ = w̄ / (1 - ρ)
 
 # Grid parameters
-M = 50
-ν = 5
-a_M = 80
+M = 100
+ν = 3
+a_M = 50
 
 # Markov chain parameters
 N = 5
@@ -392,8 +426,8 @@ end
 #==========================================================================================
 # Simulation
 ==========================================================================================#
-periods = 100
-Y = exp.(simulate!(markov, periods, 1000, 0; random_state=42))
+periods = 100000
+Y = exp.(simulate!(markov, periods, 1000, 0; random_state=28))
 A = Array{Union{Float64, Missing}}(undef, periods)
 #A[1] = A_policy[rand(1:M)]
 A[1] = 0.0
@@ -410,7 +444,7 @@ C = Array{Union{Float64, Missing}}(undef, periods)
 for t = 1:periods
     C[t] = Y[t] + R*A[t] - A1[t]
 end
-
+#=
 for t = 1:periods
     println(
         "Y[", t, "]: ", round(Y[t], digits=3),
@@ -425,9 +459,22 @@ sim_plot = plt.plot!(A1, label="Savings")
 sim_plot = plt.plot!(C, label="Consumption")
 plt.display(sim_plot)
 
+sim_plot = plt.plot(Y, label="Endowment")
+sim_plot = plt.plot!(C, label="Consumption")
+plt.display(sim_plot)
+
 Cshare_income = C ./ (R.*A .+ Y)
 Cshare_endowment = C ./ Y
 
 csim_plot = plt.plot(Cshare_income, label="Y + R*A")
 csim_plot = plt.plot!(Cshare_endowment, label="Y")
 plt.display(csim_plot)
+=#
+error = Array{Union{Float64, Missing}}(undef, periods)
+for t = 1:periods
+    i = findfirst(asset -> asset == A1[t], A_policy)
+    A2 = Ay1_policy[i, :]
+    c1 = R*A1[t] .+ states .- A2
+    error[t] = abs(1 - u_c_inv(β * R * Eu_c(states, Y[t], c1, γ, Θ), γ) / C[t])
+end
+println("Mean discretization error: ", stats.mean(error))

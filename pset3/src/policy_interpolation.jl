@@ -290,28 +290,8 @@ function bisection(
     print_output=false
     )
 
-    pos = grid_locate(grid, grid_length, spoint; reverse=false)
-    if typeof(pos) == Tuple{Int64, Int64}
-        A2m = A2[pos[1], :] .+ (spoint - grid[pos[1]]) .* ((A2[pos[2], :] .- A2[pos[1], :]) ./ (grid[pos[2]] - grid[pos[1]]))
-    else
-        A2m = A2[pos, :]
-    end
-    
-    c = R*a + y - spoint
-    c1 = R*spoint .+ (states .- A2m)
-    if c >= 0.0 && minimum(c1 .>= 0.0)
-        spointE = cEuler(states, y, c, c1, R, beta, gamma, P)
-    else
-        if print_output
-            println("Negative consumption at startpoint: $spoint.")
-        end
+    if spoint == epoint
         return missing
-    end
-    if spointE > 0.0
-        if print_output
-            println("Converged to interior solution at startpoint: $spoint.")
-        end
-        return spoint
     else
         pos = grid_locate(grid, grid_length, mpoint; reverse=false)
         if typeof(pos) == Tuple{Int64, Int64}
@@ -319,55 +299,20 @@ function bisection(
         else
             A2m = A2[pos, :]
         end
-
+        
         c = R*a + y - mpoint
         c1 = R*mpoint .+ (states .- A2m)
-        if c >= 0.0 && minimum(c1 .>= 0)
+        if c >= 0.0 && minimum(c1 .>= 0.0)
             mpointE = cEuler(states, y, c, c1, R, beta, gamma, P)
         else
-            if print_output
-                println("Negative consumption at midpoint: $mpoint.")
-            end
             return bisection(states, P, grid, grid_length, spoint, (spoint + mpoint)/2, mpoint, a, y, A2, R, beta, gamma, nu; tolerance=tolerance, print_output=print_output)
         end
-        if 0.0 <= mpointE && mpointE <= 0.0 + tolerance
-            if print_output
-                println("Converged to interior solution at midpoint: $mpoint.")
-            end
-            return mpoint
-        elseif mpointE > 0.0 + tolerance
+        if mpointE > 0.0 + tolerance
             return bisection(states, P, grid, grid_length, spoint, (spoint + mpoint)/2, mpoint, a, y, A2, R, beta, gamma, nu; tolerance=tolerance, print_output=print_output)
+        elseif mpointE < 0.0 - tolerance
+            return bisection(states, P, grid, grid_length, mpoint, (mpoint + epoint)/2, epoint, a, y, A2, R, beta, gamma, nu; tolerance=tolerance, print_output=print_output)
         else
-            pos = grid_locate(grid, grid_length, epoint; reverse=false)
-            if typeof(pos) == Tuple{Int64, Int64}
-                A2m = A2[pos[1], :] .+ (epoint - grid[pos[1]]) .* ((A2[pos[2], :] .- A2[pos[1], :]) ./ (grid[pos[2]] - grid[pos[1]]))
-            else
-                A2m = A2[pos, :]
-            end
-
-            c = R*a + y - epoint
-            c1 = R*epoint .+ (states .- A2m)
-            if c >= 0.0 && minimum(c1 .>= 0)
-                epointE = cEuler(states, y, c, c1, R, beta, gamma, P)
-            else
-                if print_output
-                    println("Negative consumption at endpoint: $epoint.")
-                end
-                return bisection(states, P, grid, grid_length, mpoint, (mpoint + epoint)/2, epoint, a, y, A2, R, beta, gamma, nu; tolerance=tolerance, print_output=print_output)
-            end
-            if epointE < 0.0
-                if print_output
-                    println("No solution found, consider expanding grid.")
-                end
-                return missing
-            elseif 0.0 <= epointE && epointE <= 0.0 + tolerance
-                if print_output
-                    println("Converged to interior solution at endpoint: $epoint.")
-                end
-                return epoint
-            else
-                return bisection(states, P, grid, grid_length, mpoint, (mpoint + epoint)/2, epoint, a, y, A2, R, beta, gamma, nu; tolerance=tolerance, print_output=print_output)
-            end
+            return mpoint
         end
     end
 end
@@ -410,16 +355,19 @@ function pfi_interpolation(
         end
         for i = 1:grid_length
             for j = 1:N
-                if print_output
-                    println("i: $i, j: $j")
-                end
-                spoint = phi
-                epoint = grid_max
-                mpoint = (spoint + epoint) / 2
-                iguess = A[i]
-                value = bisection(states, P, A, grid_length, spoint, iguess, epoint, A[i], states[j], Ay2, R, beta, gamma, nu; tolerance=tolerance, print_output=print_output)
-                if typeof(value) != Missing
-                    Ay1[i, j] = value
+                c = R*A[i] + states[j] - Ay1[1, j]
+                c1 = R*Ay1[1, j] .+ (states .- Ay2[1, :])
+                if cEuler(states, states[j], c, c1, R, beta, gamma, P) >= 0.0
+                    Ay1[i, j] = Ay1[1, j]
+                else
+                    spoint = phi
+                    epoint = grid_max
+                    mpoint = (spoint + epoint) / 2
+                    iguess = A[i]
+                    value = bisection(states, P, A, grid_length, spoint, iguess, epoint, A[i], states[j], Ay2, R, beta, gamma, nu; tolerance=tolerance, print_output=print_output)
+                    if typeof(value) != Missing
+                        Ay1[i, j] = value
+                    end
                 end
             end
         end
@@ -470,8 +418,8 @@ v = σₑ / (1 - ρ^2)
 
 # Grid parameters
 M = 100
-ν = 1
-a_M = 80
+ν = 3
+a_M = 50
 
 # Markov chain parameters
 N = 5
@@ -504,8 +452,8 @@ end
 #==========================================================================================
 # Simulation
 ==========================================================================================#
-periods = 100
-Y = exp.(simulate!(markov, periods, 1000, 0; random_state=-1))
+periods = 100000
+Y = exp.(simulate!(markov, periods, 1000, 0; random_state=28))
 A = Array{Union{Float64, Missing}}(undef, periods)
 #A[1] = A_policy[rand(1:M)]
 A[1] = 0.0
@@ -537,7 +485,6 @@ C = Array{Union{Float64, Missing}}(undef, periods)
 for t = 1:periods
     C[t] = Y[t] + R*A[t] - A1[t]
 end
-
 #=
 for t = 1:periods
     println(
@@ -547,13 +494,16 @@ for t = 1:periods
         "\tC[", t, "]: ", round(C[t], digits=3),
     )
 end
-=#
 
 sim_plot = plt.plot(Y, label="Endowment")
 sim_plot = plt.plot!(A1, label="Savings")
 sim_plot = plt.plot!(C, label="Consumption")
 plt.display(sim_plot)
-#=
+
+sim_plot = plt.plot(Y, label="Endowment")
+sim_plot = plt.plot!(C, label="Consumption")
+plt.display(sim_plot)
+
 Cshare_income = C ./ (R.*A .+ Y)
 Cshare_endowment = C ./ Y
 
@@ -564,24 +514,13 @@ plt.display(csim_plot)
 error = Array{Union{Float64, Missing}}(undef, periods)
 for t = 1:periods
     j = findfirst(state -> state == Y[t], states)
-    if Ay1_policy[1, j] == A1[t]
-        A2 = Ay1_policy[1, :]
-        c1 = R*A1[t] .+ states .- A2
-        error[t] = abs(1 - u_c_inv(β * R * Eu_c(states, Y[t], c1, γ, Θ), γ) / C[t])
+    pos = grid_locate(Ay1_policy, M, A1[t]; reverse=false)
+    if typeof(pos) == Tuple{Int64, Int64}
+        A2m = Ay1_policy[pos[1], :] .+ (A1[t] - Ay1_policy[pos[1], j]) .* ((Ay1_policy[pos[2], :] .- Ay1_policy[pos[1], :]) ./ (Ay1_policy[pos[2], j] - Ay1_policy[pos[1], j]))
     else
-        for i = 1:M - 1
-            if Ay1_policy[i+1, j] == A1[t]
-                A2 = Ay1_policy[i+1, :]
-                c1 = R*A1[t] .+ states .- A2
-                error[t] = abs(1 - u_c_inv(β * R * Eu_c(states, Y[t], c1, γ, Θ), γ) / C[t])
-                break
-            elseif Ay1_policy[i+1, j] > A1[t]
-                A2 = Ay1_policy[i, :] .+ (A1[t] - Ay1_policy[i, j]) .* ((Ay1_policy[i+1, :] .- Ay1_policy[i, :]) ./ (Ay1_policy[i+1, j] - Ay1_policy[i, j]))
-                c1 = R*A1[t] .+ states .- A2
-                error[t] = abs(1 - u_c_inv(β * R * Eu_c(states, Y[t], c1, γ, Θ), γ) / C[t])
-                break
-            end
-        end
+        A2m = Ay1_policy[pos, :]
     end
+    c1 = R*A1[t] .+ states .- A2m
+    error[t] = abs(1 - u_c_inv(β * R * Eu_c(states, Y[t], c1, γ, Θ), γ) / C[t])
 end
 println("Mean interpolation error: ", stats.mean(error))
