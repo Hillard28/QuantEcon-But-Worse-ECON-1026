@@ -291,16 +291,10 @@ function pfi_discretization(
                     gamma,
                     P
                 )
-                if print_output
-                    println(i, ", ", j, ": ", ijk)
-                end
                 if ijk >= 0
                     Ay1[i, j] = A[1]
                 else
                     for k = 2:grid_length
-                        if print_output
-                            println("After (", k, "): ", ijk)
-                        end
                         ijk1 = cEuler(
                             states,
                             states[j],
@@ -321,15 +315,15 @@ function pfi_discretization(
                             break
                         else
                             ijk = ijk1
-                            if print_output
-                                println("Before (", k, "): ", ijk)
-                            end
                         end
                     end
                 end
             end
         end
-        if maximum(skipmissing(Ay1 .== Ay2))
+        if minimum(skipmissing(Ay1 .== Ay2))
+            if print_output
+                println("Converged in $iteration iterations.")
+            end
             break
         else
             Ay2[:, :] = Ay1[:, :]
@@ -365,9 +359,9 @@ v = σₑ / (1 - ρ^2)
 μ = w̄ / (1 - ρ)
 
 # Grid parameters
-M = 100
-ν = 3
-a_M = 20
+M = 50
+ν = 5
+a_M = 80
 
 # Markov chain parameters
 N = 5
@@ -388,7 +382,7 @@ A_policy, Ay1_policy = pfi_discretization(
     β,
     γ;
     max_iterations=100,
-    print_output=false
+    print_output=true
 )
 
 for i = 1:M
