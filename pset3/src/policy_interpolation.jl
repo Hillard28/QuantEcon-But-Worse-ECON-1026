@@ -2,10 +2,8 @@
 # ECON-GA 1026 Problem Set 3
 # Ryan Gilland
 ==========================================================================================#
-import LinearAlgebra as linalg
 import Statistics as stats
 import Distributions as dist
-import QuantEcon as qe
 import Random as random
 import Plots as plt
 
@@ -434,8 +432,9 @@ function pfi_interpolation(
             end
             break
         elseif iteration == max_iterations
-            println("Interpolation failed to converge.\nErrors:")
+            println("Interpolation failed to converge, with a max absolute error of $(round(error, digits=8)).")
             if print_output
+                println("Component level errors:")
                 for i = 1:grid_length
                     println(round.(abs.(skipmissing(Ay1[i, :] .- Ay2[i, :])), digits=8))
                 end
@@ -473,9 +472,9 @@ v = σₑ / (1 - ρ^2)
 μ = w̄ / (1 - ρ)
 
 # Grid parameters
-M = 300
-ν = 1
-a_M = 300
+M = 100
+ν = 3
+a_M = 100
 
 # Markov chain parameters
 N = 5
@@ -495,7 +494,7 @@ A_policy, Ay1_policy = pfi_interpolation(
     R,
     β,
     γ;
-    max_iterations=1000,
+    max_iterations=2000,
     val_tol=1e-6,
     solver_tol=1e-10,
     print_output=false
@@ -509,7 +508,7 @@ end
 #==========================================================================================
 # Simulation
 ==========================================================================================#
-periods = 100000
+periods = 10000
 Y = exp.(simulate!(markov, periods, 1000, 0; random_state=42))
 A = Array{Union{Float64, Missing}}(undef, periods)
 #A[1] = A_policy[rand(1:M)]
@@ -546,26 +545,28 @@ for t = 1:periods
 end
 =#
 
-m_y = round(stats.mean(Y), digits=3)
-m_c = round(stats.mean(C), digits=3)
-v_y = round(stats.var(Y), digits=3)
-v_c = round(stats.var(C), digits=3)
+m_y = stats.mean(Y)
+m_c = stats.mean(C)
+std_y = stats.std(Y)
+std_c = stats.std(C)
 
 sim_plot = plt.plot(Y, label="Endowment")
 sim_plot = plt.plot!(A1, label="Savings")
 sim_plot = plt.plot!(C, label="Consumption")
 plt.display(sim_plot)
 
-sim_plot = plt.plot(Y, label="Endowment: μ = $m_y, v = $v_y")
-sim_plot = plt.plot!(C, label="Consumption: μ = $m_c, v = $v_c")
+sim_plot = plt.plot(Y, label="Endowment: μ = $(round(m_y, digits=3)), std = $(round(std_y, digits=3))")
+sim_plot = plt.plot!(C, label="Consumption: μ = $(round(m_c, digits=3)), std = $(round(std_c, digits=3))")
 plt.display(sim_plot)
 
+#=
 Cshare_income = C ./ (R.*A .+ Y)
 Cshare_endowment = C ./ Y
 
 csim_plot = plt.plot(Cshare_income, label="Y + R*A")
 csim_plot = plt.plot!(Cshare_endowment, label="Y")
 plt.display(csim_plot)
+=#
 
 error = Array{Union{Float64, Missing}}(undef, periods)
 for t = 1:periods

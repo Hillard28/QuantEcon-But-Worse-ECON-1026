@@ -2,10 +2,8 @@
 # ECON-GA 1026 Problem Set 3
 # Ryan Gilland
 ==========================================================================================#
-import LinearAlgebra as linalg
 import Statistics as stats
 import Distributions as dist
-import QuantEcon as qe
 import Random as random
 import Plots as plt
 
