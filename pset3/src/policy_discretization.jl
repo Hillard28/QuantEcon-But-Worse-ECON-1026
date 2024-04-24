@@ -215,18 +215,26 @@ end
 #==========================================================================================
 # Utility and asset grid functions
 ==========================================================================================#
+# Computes u(c)
 function u(c, gamma)
-    return (c^(1 - gamma)) / (1 - gamma)
+    if gamma == 1
+        return log(c)
+    else
+        return (c^(1 - gamma)) / (1 - gamma)
+    end
 end
 
+# Computes u_c(c)
 function u_c(c, gamma)
     return c^(-gamma)
 end
 
+# Computes u_c(c)^(--1)
 function u_c_inv(c, gamma)
     return c^(-1/gamma)
 end
 
+# Computes the expected value of u_c(c_1)
 function Eu_c(states, y, c, gamma, P)
     N = length(states)
 
@@ -235,22 +243,26 @@ function Eu_c(states, y, c, gamma, P)
     return P_y' * u_c.(c, gamma)
 end
 
+# Computes the Euler equation
 function cEuler(states, y, c, c1, R, beta, gamma, P)
     lhs = u_c(c, gamma)
     rhs = beta * R * Eu_c(states, y, c1, gamma, P)
     return lhs - rhs
 end
 
+# Computes the distance between grid points using a shape parameter
 function grid_distance(min, max, minval, maxval, i, shape=1)
     minval + (maxval - minval)*((i - min) / (max - min))^shape
 end
 
+# Locates grid points surrounding a given value
 function grid_locate(grid, grid_length, point; reverse=false)
     if grid[1] >= point
         return 1
     elseif grid[grid_length] <= point
         return grid_length
     else
+        # Make search quicker if near end of grid
         if reverse
             for i = grid_length:-1:2
                 if grid[i-1] == point
@@ -269,6 +281,14 @@ function grid_locate(grid, grid_length, point; reverse=false)
             end
         end
     end
+end
+
+function interpolate_vec(grid, grid_int, point, pos)
+    return grid_int[pos[1], :] .+ (point - grid[pos[1]]) .* ((grid_int[pos[2], :] .- grid_int[pos[1], :]) ./ (grid[pos[2]] - grid[pos[1]]))
+end
+
+function interpolate(grid, grid_int, point, pos)
+    return grid_int[pos[1]] .+ (point - grid[pos[1]]) .* ((grid_int[pos[2]] .- grid_int[pos[1]]) ./ (grid[pos[2]] - grid[pos[1]]))
 end
 
 function pfi_discretization(

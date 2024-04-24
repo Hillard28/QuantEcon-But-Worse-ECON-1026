@@ -215,28 +215,80 @@ end
 #==========================================================================================
 # Utility and asset grid functions
 ==========================================================================================#
+# Computes u(c)
 function u(c, gamma)
-    return c^(1 - gamma) / (1 - gamma)
+    if gamma == 1
+        return log(c)
+    else
+        return (c^(1 - gamma)) / (1 - gamma)
+    end
 end
 
+# Computes u_c(c)
 function u_c(c, gamma)
     return c^(-gamma)
 end
 
-function Eu_c_y(states, y, a1, A2_y, R, gamma, P)
+# Computes u_c(c)^(--1)
+function u_c_inv(c, gamma)
+    return c^(-1/gamma)
+end
+
+# Computes the expected value of u_c(c_1)
+function Eu_c(states, y, c, gamma, P)
     N = length(states)
 
     i_y = findfirst(state -> state == y, states)
     P_y = P[i_y, :]
-    global u_c_y = 0.0
-    for j = 1:N
-        u_c_y += P_y[j] * u_c(R*a1 - A2_y[j] + states[j], gamma)
-    end
-    return u_c_y
+    return P_y' * u_c.(c, gamma)
 end
 
-function cEuler(states, y, a, a1, A2_y, R, beta, gamma, P)
-    return u_c(R*a + y - a1, gamma) - beta * R * Eu_c_y(states, y, a1, A2_y, R, gamma, P)
+# Computes the Euler equation
+function cEuler(states, y, c, c1, R, beta, gamma, P)
+    lhs = u_c(c, gamma)
+    rhs = beta * R * Eu_c(states, y, c1, gamma, P)
+    return lhs - rhs
+end
+
+# Computes the distance between grid points using a shape parameter
+function grid_distance(min, max, minval, maxval, i, shape=1)
+    minval + (maxval - minval)*((i - min) / (max - min))^shape
+end
+
+# Locates grid points surrounding a given value
+function grid_locate(grid, grid_length, point; reverse=false)
+    if grid[1] >= point
+        return 1
+    elseif grid[grid_length] <= point
+        return grid_length
+    else
+        # Make search quicker if near end of grid
+        if reverse
+            for i = grid_length:-1:2
+                if grid[i-1] == point
+                    return i-1
+                elseif grid[i-1] < point
+                    return (i-1, i)
+                end
+            end
+        else
+            for i = 1:grid_length - 1
+                if grid[i+1] == point
+                    return i+1
+                elseif grid[i+1] > point
+                    return (i, i+1)
+                end
+            end
+        end
+    end
+end
+
+function interpolate_vec(grid, grid_int, point, pos)
+    return grid_int[pos[1], :] .+ (point - grid[pos[1]]) .* ((grid_int[pos[2], :] .- grid_int[pos[1], :]) ./ (grid[pos[2]] - grid[pos[1]]))
+end
+
+function interpolate(grid, grid_int, point, pos)
+    return grid_int[pos[1]] .+ (point - grid[pos[1]]) .* ((grid_int[pos[2]] .- grid_int[pos[1]]) ./ (grid[pos[2]] - grid[pos[1]]))
 end
 
 function pfi_gd(
