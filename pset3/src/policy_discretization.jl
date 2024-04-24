@@ -316,18 +316,11 @@ function pfi_discretization(
     end
 
     Ay1 = Array{Union{Float64, Missing}}(undef, (grid_length, N))
-    for i = 1:grid_length
-        for j = 1:N
-            Ay1[i, j] = A[i]
-        end
-    end
-
     Ay2 = Array{Union{Float64, Missing}}(undef, (grid_length, N))
-    for i = 1:grid_length
-        for j = 1:N
-            Ay2[i, j] = A[i]
-        end
+    for j = 1:N
+        Ay1[:, j] = A
     end
+    Ay2[:, :] = Ay1[:, :]
 
     for iteration = 1:max_iterations
         for i = 1:grid_length
