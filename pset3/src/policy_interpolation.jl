@@ -282,11 +282,13 @@ function grid_locate(grid, grid_length, point; reverse=false)
 end
 
 function interpolate_vec(grid, grid_int, point, pos)
-    return grid_int[pos[1], :] .+ (point - grid[pos[1]]) .* ((grid_int[pos[2], :] .- grid_int[pos[1], :]) ./ (grid[pos[2]] - grid[pos[1]]))
+    return grid_int[pos[1], :] .+ (point - grid[pos[1]]) .*
+        ((grid_int[pos[2], :] .- grid_int[pos[1], :]) ./ (grid[pos[2]] - grid[pos[1]]))
 end
 
 function interpolate(grid, grid_int, point, pos)
-    return grid_int[pos[1]] .+ (point - grid[pos[1]]) .* ((grid_int[pos[2]] .- grid_int[pos[1]]) ./ (grid[pos[2]] - grid[pos[1]]))
+    return grid_int[pos[1]] .+ (point - grid[pos[1]]) .*
+        ((grid_int[pos[2]] .- grid_int[pos[1]]) ./ (grid[pos[2]] - grid[pos[1]]))
 end
 
 # Nonlinear solver using the bisection method
@@ -330,14 +332,65 @@ function bisection(
         if c >= 0.0 && minimum(c1 .>= 0.0)
             mpointE = cEuler(states, y, c, c1, R, beta, gamma, P)
         else
-            return bisection(states, P, grid, grid_length, spoint, (spoint + mpoint)/2, mpoint, a, y, A1, A2, R, beta, gamma; tolerance=tolerance, print_output=print_output)
+            return bisection(
+                states,
+                P,
+                grid,
+                grid_length,
+                spoint,
+                (spoint + mpoint)/2,
+                mpoint,
+                a,
+                y,
+                A1,
+                A2,
+                R,
+                beta,
+                gamma;
+                tolerance=tolerance,
+                print_output=print_output
+            )
         end
         # If Euler is greater than zero, optimal value is between startpoint and midpoint
         # else it is between midpoint and endpoint
         if mpointE > 0.0 + tolerance
-            return bisection(states, P, grid, grid_length, spoint, (spoint + mpoint)/2, mpoint, a, y, A1, A2, R, beta, gamma; tolerance=tolerance, print_output=print_output)
+            return bisection(
+                states,
+                P,
+                grid,
+                grid_length,
+                spoint,
+                (spoint + mpoint)/2,
+                mpoint,
+                a,
+                y,
+                A1,
+                A2,
+                R,
+                beta,
+                gamma;
+                tolerance=tolerance,
+                print_output=print_output
+            )
         elseif mpointE < 0.0 - tolerance
-            return bisection(states, P, grid, grid_length, mpoint, (mpoint + epoint)/2, epoint, a, y, A1, A2, R, beta, gamma; tolerance=tolerance, print_output=print_output)
+            return bisection(
+                states,
+                P,
+                grid,
+                grid_length,
+                mpoint,
+                (mpoint + epoint)/2,
+                epoint,
+                a,
+                y,
+                A1,
+                A2,
+                R,
+                beta,
+                gamma;
+                tolerance=tolerance,
+                print_output=print_output
+            )
         else
             return mpoint
         end
@@ -425,14 +478,21 @@ function pfi_interpolation(
         Ay1[:, :] = Ay1s[:, :]
         # Compute maximum error of a' - a''
         error = maximum(abs.(skipmissing(Ay1 .- Ay2)))
-        # If error <= tolerance, complete, else set a'' = a' and repeat until max iterations reached
+        # If error <= tolerance, complete, else set a'' = a' and repeat until max
+        # iterations reached
         if error <= val_tol
             if print_output
-                println("\nError (", round(error, digits=8), ") within tolerance in ", iteration, " iterations, exiting.\n")
+                println(
+                    "\nError $(round(error, digits=8)) within tolerance in $iteration \
+                    iterations, exiting.\n"
+                )
             end
             break
         elseif iteration == max_iterations
-            println("Interpolation failed to converge, with a max absolute error of $(round(error, digits=8)).")
+            println(
+                "Interpolation failed to converge, with a max absolute error of \
+                $(round(error, digits=8))."
+            )
             if print_output
                 println("Component level errors:")
                 for i = 1:grid_length
@@ -441,7 +501,10 @@ function pfi_interpolation(
             end
         else
             if print_output
-                println("\nError (", round(error, digits=8), ") outside of tolerance, updating Ay2.\nErrors:")
+                println(
+                    "\nError $(round(error, digits=8)) outside of tolerance, updating Ay2.
+                    Errors:"
+                )
             end
             Ay2[:, :] = Ay1[:, :]
         end
@@ -555,8 +618,14 @@ sim_plot = plt.plot!(A1, label="Savings")
 sim_plot = plt.plot!(C, label="Consumption")
 plt.display(sim_plot)
 
-sim_plot = plt.plot(Y, label="Endowment: μ = $(round(m_y, digits=3)), std = $(round(std_y, digits=3))")
-sim_plot = plt.plot!(C, label="Consumption: μ = $(round(m_c, digits=3)), std = $(round(std_c, digits=3))")
+sim_plot = plt.plot(
+    Y,
+    label="Endowment: μ = $(round(m_y, digits=3)), std = $(round(std_y, digits=3))"
+)
+sim_plot = plt.plot!(
+    C,
+    label="Consumption: μ = $(round(m_c, digits=3)), std = $(round(std_c, digits=3))"
+)
 plt.display(sim_plot)
 
 #=
@@ -570,14 +639,14 @@ plt.display(csim_plot)
 
 error = Array{Union{Float64, Missing}}(undef, periods)
 for t = 1:periods
-    j = findfirst(state -> state == Y[t], states)
+    i_y = findfirst(state -> state == Y[t], states)
     pos = grid_locate(Ay1_policy, M, A1[t]; reverse=false)
     if typeof(pos) == Tuple{Int64, Int64}
-        A2m = Ay1_policy[pos[1], :] .+ (A1[t] - Ay1_policy[pos[1], j]) .* ((Ay1_policy[pos[2], :] .- Ay1_policy[pos[1], :]) ./ (Ay1_policy[pos[2], j] - Ay1_policy[pos[1], j]))
+        A2m = interpolate_vec(Ay1_policy[:, i_y], Ay1_policy, A1[t], pos)
     else
         A2m = Ay1_policy[pos, :]
     end
     c1 = R*A1[t] .+ states .- A2m
-    error[t] = abs(1 - u_c_inv(β * R * Eu_c(states, Y[t], c1, γ, Θ), γ) / C[t])
+    error[t] = 1 - u_c_inv(β * R * Eu_c(states, Y[t], c1, γ, Θ), γ) / C[t]
 end
-println("Mean interpolation error: ", stats.mean(error))
+println("Mean interpolation error: ", stats.mean(abs.(error)))
